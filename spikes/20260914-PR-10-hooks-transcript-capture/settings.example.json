@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/spikes/20260914-PR-10-hooks-transcript-capture/capture_transcript.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

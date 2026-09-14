@@ -18,3 +18,4 @@ Folder naming: date the spike was done, the ticket it belongs to, then a short s
 | Date | Ticket | Spike | Summary |
 |---|---|---|---|
 | 20260914 | [PR-9](https://linear.app) | [jsonl-transcript-parser](20260914-PR-9-jsonl-transcript-parser/) | Defensive parser for Claude Code `.jsonl` session transcripts — extracts user/assistant turns and tool calls/results, tolerates schema drift and malformed lines. |
+| 20260914 | [PR-10](https://linear.app/freddie-cassidy/issue/PR-10/spike-explore-claude-code-hooks-for-capturing-full-transcripts) | [hooks-transcript-capture](20260914-PR-10-hooks-transcript-capture/) | Claude Code hooks for capturing full session transcripts — event/config/payload reference, empirical verification against a live transcript, and prior art from entire.io/cli's shipped implementation. |
