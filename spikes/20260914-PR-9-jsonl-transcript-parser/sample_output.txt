@@ -1,0 +1,31 @@
+Parsing: /Users/freddiecassidy/.claude/projects/-Users-freddiecassidy-Documents/069485ab-435d-4f81-a4ae-26f6957748ee.jsonl
+
+=== Summary ===
+Total non-blank lines:     195
+Malformed JSON lines:      0
+User turns extracted:      4
+Assistant turns extracted: 11
+Tool calls extracted:      30
+Tool results extracted:    30
+Content blocks skipped:    0
+Other line types seen:     {'attachment': 45, 'last-prompt': 10, 'custom-title': 10, 'atis-latch': 10, 'bridge-session': 10, 'queue-operation': 8, 'file-history-snapshot': 4, 'system': 3, 'file-history-delta': 2}
+
+=== Sample user turns (first 3) ===
+  L3: '"look at the linear ticket R-9, can you look on my local and see if theres jsonl that are extractable, then create a spike script in the root of the u'
+  L148: 'put it into a spikes folder, dated and mention the ticket number both in the filename'
+  L168: 'add a readme to the spike folder which can be used as the spike entrypoint for an agent'
+
+=== Sample assistant turns (first 3) ===
+  L21: "I'll locate the repo and survey the session files in parallel."
+  L57: "The `unrot-your-brain` repo doesn't exist anywhere on this machine — I checked `/Users/freddiecassidy` broadly (depth 8), common code dirs (`~/Code`, "
+  L68: "Found it: `/Users/freddiecassidy/Documents/GitHub/unrot-your-brain`. Now let's survey the session files."
+
+=== Sample tool calls (first 3) ===
+  L22: Bash id=toolu_01RGNyg1UyhozDgjq79j27Nz input={"command": "echo \"=== Searching for unrot-your-brain repo ===\" && find / -maxdepth 6 -iname \"*unrot-your-brain*\" -type d 2>/dev/null", "descripti
+  L23: Bash id=toolu_01Da6JPeJuRyp2a4d8T9ScZM input={"command": "echo \"=== Project dirs ===\" && ls ~/.claude/projects | wc -l && echo \"=== Total jsonl files ===\" && find ~/.claude/projects -name \"*
+  L38: Bash id=toolu_01RLJUvQPsD3h2eArZ13rdbu input={"command": "mdfind -name \"unrot-your-brain\" 2>/dev/null; echo \"---mdfind kind---\"; mdfind \"kMDItemFSName == '*unrot*'\" 2>/dev/null", "descripti
+
+=== Sample tool results (first 3) ===
+  L24: id=toolu_01Da6JPeJuRyp2a4d8T9ScZM is_error=False content='=== Project dirs ===\n       4\n=== Total jsonl files ===\n      14\n=== Total size ===\n7.2M\t/Users/freddiecassidy/.claude/projects'
+  L29: id=toolu_01RGNyg1UyhozDgjq79j27Nz is_error=False content='=== Searching for unrot-your-brain repo ==='
+  L40: id=toolu_01RLJUvQPsD3h2eArZ13rdbu is_error=False content='---mdfind kind---'
