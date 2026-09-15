@@ -1,0 +1,47 @@
+=== 2026-09-15T08:55:32Z SessionStart ===
+payload keys: ['cwd', 'hook_event_name', 'scratchpad_dir', 'session_id', 'source', 'transcript_path']
+  session_id: '371ac2fb-18cf-4f69-a7e0-b1e6095ce368'
+  hook_event_name: 'SessionStart'
+  cwd: '/private/tmp/claude-501/-Users-freddiecassidy-Documents-GitHub-unrot-your-brain/907dc8ed-1722-4050-9ac2-67aeb82e5434/scratchpad/pr10-hook-test'
+  transcript_path: /Users/freddiecassidy/.claude/projects/-private-tmp-claude-501--Users-freddiecassidy-Documents-GitHub-unrot-your-brain-907dc8ed-1722-4050-9ac2-67aeb82e5434-scratchpad-pr10-hook-test/371ac2fb-18cf-4f69-a7e0-b1e6095ce368.jsonl (missing or not yet created)
+=== 2026-09-15T08:55:34Z UserPromptSubmit ===
+payload keys: ['cwd', 'hook_event_name', 'permission_mode', 'prompt', 'prompt_id', 'scratchpad_dir', 'session_id', 'transcript_path']
+  session_id: '371ac2fb-18cf-4f69-a7e0-b1e6095ce368'
+  hook_event_name: 'UserPromptSubmit'
+  cwd: '/private/tmp/claude-501/-Users-freddiecassidy-Documents-GitHub-unrot-your-brain/907dc8ed-1722-4050-9ac2-67aeb82e5434/scratchpad/pr10-hook-test'
+  permission_mode: 'default'
+  transcript_path: /Users/freddiecassidy/.claude/projects/-private-tmp-claude-501--Users-freddiecassidy-Documents-GitHub-unrot-your-brain-907dc8ed-1722-4050-9ac2-67aeb82e5434-scratchpad-pr10-hook-test/371ac2fb-18cf-4f69-a7e0-b1e6095ce368.jsonl (missing or not yet created)
+=== 2026-09-15T08:55:38Z PreToolUse ===
+payload keys: ['cwd', 'effort', 'hook_event_name', 'permission_mode', 'prompt_id', 'scratchpad_dir', 'session_id', 'tool_input', 'tool_name', 'tool_use_id', 'transcript_path']
+  session_id: '371ac2fb-18cf-4f69-a7e0-b1e6095ce368'
+  hook_event_name: 'PreToolUse'
+  cwd: '/private/tmp/claude-501/-Users-freddiecassidy-Documents-GitHub-unrot-your-brain/907dc8ed-1722-4050-9ac2-67aeb82e5434/scratchpad/pr10-hook-test'
+  permission_mode: 'default'
+  tool_name: 'Bash'
+  tool_use_id: 'toolu_012CcWibj65NDxTj6q729bQR'
+  tool_input keys: ['command', 'description']
+  transcript_path: /Users/freddiecassidy/.claude/projects/-private-tmp-claude-501--Users-freddiecassidy-Documents-GitHub-unrot-your-brain-907dc8ed-1722-4050-9ac2-67aeb82e5434-scratchpad-pr10-hook-test/371ac2fb-18cf-4f69-a7e0-b1e6095ce368.jsonl (exists, 17 lines, 115068 bytes)
+=== 2026-09-15T08:55:38Z PostToolUse ===
+payload keys: ['cwd', 'duration_ms', 'effort', 'hook_event_name', 'permission_mode', 'prompt_id', 'scratchpad_dir', 'session_id', 'tool_input', 'tool_name', 'tool_response', 'tool_use_id', 'transcript_path']
+  session_id: '371ac2fb-18cf-4f69-a7e0-b1e6095ce368'
+  hook_event_name: 'PostToolUse'
+  cwd: '/private/tmp/claude-501/-Users-freddiecassidy-Documents-GitHub-unrot-your-brain/907dc8ed-1722-4050-9ac2-67aeb82e5434/scratchpad/pr10-hook-test'
+  permission_mode: 'default'
+  tool_name: 'Bash'
+  tool_use_id: 'toolu_012CcWibj65NDxTj6q729bQR'
+  tool_input keys: ['command', 'description']
+  transcript_path: /Users/freddiecassidy/.claude/projects/-private-tmp-claude-501--Users-freddiecassidy-Documents-GitHub-unrot-your-brain-907dc8ed-1722-4050-9ac2-67aeb82e5434-scratchpad-pr10-hook-test/371ac2fb-18cf-4f69-a7e0-b1e6095ce368.jsonl (exists, 19 lines, 118680 bytes)
+=== 2026-09-15T08:55:41Z Stop ===
+payload keys: ['background_tasks', 'cwd', 'effort', 'hook_event_name', 'last_assistant_message', 'permission_mode', 'prompt_id', 'scratchpad_dir', 'session_crons', 'session_id', 'stop_hook_active', 'transcript_path']
+  session_id: '371ac2fb-18cf-4f69-a7e0-b1e6095ce368'
+  hook_event_name: 'Stop'
+  cwd: '/private/tmp/claude-501/-Users-freddiecassidy-Documents-GitHub-unrot-your-brain/907dc8ed-1722-4050-9ac2-67aeb82e5434/scratchpad/pr10-hook-test'
+  permission_mode: 'default'
+  last_assistant_message: 'DONE'
+  transcript_path: /Users/freddiecassidy/.claude/projects/-private-tmp-claude-501--Users-freddiecassidy-Documents-GitHub-unrot-your-brain-907dc8ed-1722-4050-9ac2-67aeb82e5434-scratchpad-pr10-hook-test/371ac2fb-18cf-4f69-a7e0-b1e6095ce368.jsonl (exists, 27 lines, 298185 bytes)
+=== 2026-09-15T08:55:41Z SessionEnd ===
+payload keys: ['cwd', 'hook_event_name', 'prompt_id', 'reason', 'scratchpad_dir', 'session_id', 'transcript_path']
+  session_id: '371ac2fb-18cf-4f69-a7e0-b1e6095ce368'
+  hook_event_name: 'SessionEnd'
+  cwd: '/private/tmp/claude-501/-Users-freddiecassidy-Documents-GitHub-unrot-your-brain/907dc8ed-1722-4050-9ac2-67aeb82e5434/scratchpad/pr10-hook-test'
+  transcript_path: /Users/freddiecassidy/.claude/projects/-private-tmp-claude-501--Users-freddiecassidy-Documents-GitHub-unrot-your-brain-907dc8ed-1722-4050-9ac2-67aeb82e5434-scratchpad-pr10-hook-test/371ac2fb-18cf-4f69-a7e0-b1e6095ce368.jsonl (exists, 29 lines, 299262 bytes)

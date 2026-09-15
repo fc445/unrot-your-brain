@@ -11,7 +11,7 @@ Figure out whether/how Claude Code's hooks system can be used to capture a full 
 
 - Hooks don't carry the full conversation inline — they carry a `transcript_path` pointer to a JSONL file Claude Code already writes to disk for every session, at `~/.claude/projects/<project-slug>/<session-id>.jsonl`. **Capturing "the full transcript" is really just: pick a hook that fires at a useful moment, then copy/read that file.**
 - That JSONL file already contains everything: user turns, assistant turns (including `thinking` blocks), `tool_use` and `tool_result` blocks, and session metadata — verified empirically against this very session's own transcript (see below), not just from docs.
-- Best hook for "capture when the session is done" looked like `SessionEnd` from the docs alone (`Stop` fires per-turn and the docs warn the transcript file lags the in-memory conversation). But real prior art (entire.io/cli, see below) checkpoints on `Stop` instead, precisely *because* it fires every turn, and works around the lag by tracking a transcript line-count offset between hook firings rather than trusting the file to be complete. Worth following that lead rather than defaulting to `SessionEnd`.
+- Best hook for "capture when the session is done" looked like `SessionEnd` from the docs alone (`Stop` fires per-turn and the docs warn the transcript file lags the in-memory conversation). But real prior art (entire.io/cli, see below) checkpoints on `Stop` instead, precisely *because* it fires every turn. A live test (see "Live test" below) installed real hooks and triggered them with an actual headless session: all six fired correctly, and for a simple single-turn case the transcript was already current (contained the final assistant message) by the time `Stop` fired — only trailing metadata arrived after.
 - Hooks are configured in a `settings.json` (`~/.claude/settings.json` user-level, `.claude/settings.json` project-level/committable, or `.claude/settings.local.json` project-level/gitignored), under a `"hooks"` key keyed by event name.
 - The transcript format itself is explicitly called out in the docs as **internal/unstable and not meant to be parsed directly** — it changes between Claude Code versions without notice. This spike takes a "copy the file as evidence" approach (no parsing) for that reason; PR-9's spike (`spikes/20260914-PR-9-jsonl-transcript-parser/`) is the one that actually parses it defensively.
 
@@ -23,12 +23,12 @@ Figure out whether/how Claude Code's hooks system can be used to capture a full 
 - Top-level JSONL line `type`s seen in one real session included `user`, `assistant`, `attachment`, `system`, `file-history-snapshot`, plus several Claude-Code-internal bookkeeping types (`last-prompt`, `atis-latch`, `bridge-session`, `queue-operation`, `custom-title`) that aren't documented and are presumably implementation detail.
 - Within `user`/`assistant` message content arrays, block `type`s seen included `text`, `thinking`, `tool_use`, and `tool_result` — i.e. the file does capture tool calls and their results, not just chat text.
 - `capture_transcript.sh` in this folder, invoked with a synthetic hook-shaped JSON payload (`{"session_id": ..., "transcript_path": ...}`) on stdin, successfully copies the live transcript file out. This is the smallest possible proof that "read `transcript_path` from the hook payload, then read that file" works mechanically.
+- **A full live test** (see "Live test" section below): real hooks installed via `install_hooks.py` into a throwaway repo's `.claude/settings.local.json`, triggered by an actual headless `claude -p` run. All six installed hooks (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SessionEnd`) fired with real payloads, tool-scoped matchers (`Bash`) behaved as documented, and the transcript was confirmed to contain the literal output of the tool call Claude ran. The `Stop`-time transcript-lag question was measured directly, not just assumed from docs.
 
-**From official docs only, not independently re-verified against a live hook firing** (`https://code.claude.com/docs/en/hooks.md`, `https://code.claude.com/docs/en/hooks-guide.md`):
-- The full list of hook event names (over 30 — see below) and the settings.json schema.
-- The exact set of fields on each event's JSON input.
-- That `transcript_path` writes lag the in-memory conversation (i.e. the async/staleness claim) — plausible given async I/O, but not something this spike triggered and measured directly (e.g. by diffing file content immediately before/after a `Stop` hook fires).
-- Subagent transcript behavior — the docs don't clearly say whether a subagent's turns land in the same transcript file as the parent session or elsewhere; this session's own transcript (which did include a subagent call, see the `Agent` tool use in this conversation) would be one place to check but wasn't diffed against subagent-specific output as part of this spike.
+**From official docs only, not independently re-verified**:
+- The full list of hook event names (over 30 — see below) and the settings.json schema, beyond the ~9 fields the live test actually exercised.
+- Subagent transcript file location (resolved via entire.io/cli's source instead — see "Prior art" — but not independently re-verified against a live subagent run; the live test used a plain `Bash` call, not an `Agent` spawn).
+- `transcript_path` lag under harder conditions (multi-turn, concurrent tool calls, a subagent in flight) — the live test only measured a single simple turn.
 
 ## Hook events relevant to transcript capture
 
@@ -86,6 +86,9 @@ Every hook gets JSON on stdin. Fields common to all events, per docs:
 - `settings.example.json` — a `SessionEnd` hook config, referencing `$CLAUDE_PROJECT_DIR` so it's portable.
 - `capture_transcript.sh` — the hook script: reads `session_id` and `transcript_path` from stdin JSON, copies the transcript into `output/<session_id>.jsonl`.
 - `output/` — scratch dir the script creates and writes into (not checked in — it would just be a copy of a real session transcript, which could contain anything discussed in that session). The smoke test below created and then deleted one.
+- `install_hooks.py` — the hook-install mechanism extracted/generalized from entireio/cli's `InstallHooks`, merges a set of observation hooks into a target repo's `.claude/settings.local.json`, idempotently. See "Live test" below.
+- `log_hook.sh` — generic hook logger installed by `install_hooks.py`; summarizes each hook's payload and transcript-file state into `hook_events.log`.
+- `hook_events.log` — the actual, real log from the live test below (trimmed of nothing — it's already small and contains no session content beyond field names/counts).
 
 ### How to run it
 
@@ -109,13 +112,25 @@ This spike's own smoke test skipped steps 1–2 and instead piped a synthetic pa
 
 This is a strong argument for a follow-up spike (or straight into implementation) that borrows entire.io/cli's hook set and matcher names directly rather than re-deriving them, and that checkpoints on `Stop` rather than `SessionEnd`.
 
+## Live test: installing and actually triggering the hooks
+
+The gap above ("only proved the script works given a synthetic payload") is now closed. `install_hooks.py` and `log_hook.sh` in this folder extract the hook-install *mechanism* from entireio/cli's `InstallHooks`/`installHookEntries` (`cmd/entire/cli/agent/claudecode/hooks.go`) — generalized to write generic observation hooks instead of `entire hooks claude-code ...` commands — and were run for real:
+
+1. `install_hooks.py <target-repo> <log_hook.sh path>` wrote a `.claude/settings.local.json` into a throwaway scratch directory, registering `SessionStart`, `UserPromptSubmit`, `Stop`, `SessionEnd`, `SubagentStop` (simple, unconditional hooks) and `PreToolUse`/`PostToolUse` scoped to the `Bash` tool matcher — mirroring entire.io/cli's simple-hook vs. tool-scoped-hook structure, just with a `Bash` matcher instead of their `Agent`/`TaskCreate|TaskUpdate` ones (easier to trigger reliably in a scripted headless run without forcing a real subagent spawn).
+2. Ran a real headless session against that directory: `claude -p "Run 'echo hook-test-marker' using the Bash tool, then reply with exactly: DONE"`.
+3. **All six installed hooks fired**, in the expected order (`SessionStart` → `UserPromptSubmit` → `PreToolUse` → `PostToolUse` → `Stop` → `SessionEnd`), each with a real JSON payload on stdin. A trimmed copy of that log is checked in at [`hook_events.log`](hook_events.log).
+4. Confirmed the `Bash` tool matcher works exactly like entire.io/cli's `Agent`/`TaskCreate|TaskUpdate` tool-scoped matchers claim — `PreToolUse`/`PostToolUse` fired only for the `Bash` call, with `tool_name`, `tool_use_id`, and `tool_input` present as documented.
+5. Confirmed the transcript really does contain the actual tool output: reading the real `transcript_path` from the `Stop` payload and grepping its `tool_result` content returned `'hook-test-marker'` — the literal stdout of the Bash command Claude ran, not a paraphrase.
+6. **Measured the `Stop` transcript-lag question directly** (previously only assumed from docs): the transcript had 27 lines at the moment `Stop` fired; by the end of the run it had 29. Diffing those two lines showed they were pure bookkeeping (`system`, `last-prompt` entries) — the actual final assistant message (`"DONE"`) was **already present** in the transcript at line 27, i.e. by the time `Stop` fired. So for this single-turn, no-subagent case, the "transcript may lag" warning in the docs did not manifest as missing conversational content — only trailing metadata arrived after. This doesn't disprove lag as a real risk for more complex/concurrent sessions (entire.io/cli's line-offset workaround still seems like reasonable defensive engineering), but it's one data point that the common case is fine.
+7. One incidental finding: the classifier that guards `--dangerously-skip-permissions` blocked that flag outright ("Create Unsafe Agents"). Its own denial message pointed at the correct alternative — adding a scoped `permissions.allow` rule (`Bash(echo:*)`) to `settings.local.json` instead — which worked. Worth remembering for any future scripted/headless testing: don't reach for the skip-permissions flag, use a scoped permission rule.
+8. Test repo and the real `~/.claude/projects/...` session directory it created were both deleted immediately after the run — nothing besides the trimmed log and the install/logger scripts themselves was kept.
+
 ## Open gaps
 
-- Did not actually register the hook in `settings.json` and trigger it via a real `SessionEnd` event (i.e. didn't end a real Claude Code session to observe the hook fire) — only proved the script works given a hook-shaped payload. Doing that is the natural next step before relying on this for real.
-- Did not verify the claimed async-lag behavior of `transcript_path` on `Stop` (i.e. didn't measure whether the file is missing the just-emitted turn at the moment a `Stop` hook fires).
-- ~~Did not verify how/whether subagent turns are segregated into a separate transcript file vs. inlined into the parent's.~~ Resolved via entire.io/cli's source: subagent transcripts are separate files at `<transcript_dir>/<session_id>/subagents/agent-<agent_id>.jsonl` — see the "Prior art" section below. Not independently re-verified against a live subagent run in this repo.
-- Did not check behavior for headless/`-p` mode sessions or the `CLAUDE_CODE_SKIP_PROMPT_HISTORY`-style suppression the docs research turned up — needs confirming against real headless runs before assuming capture works there too.
-- The internal JSONL schema (block types, top-level `type` values) was only sampled from one session; the docs explicitly warn it can change between Claude Code versions, so any real implementation should treat this defensively (see PR-9's spike for that).
+- Did not verify `transcript_path` lag under harder conditions — a multi-turn session, concurrent tool calls, or a subagent in flight — only a single simple turn (see point 6 above). entire.io/cli's defensive line-offset tracking still looks like the safer default.
+- ~~Did not verify how/whether subagent turns are segregated into a separate transcript file vs. inlined into the parent's.~~ Resolved via entire.io/cli's source: subagent transcripts are separate files at `<transcript_dir>/<session_id>/subagents/agent-<agent_id>.jsonl` — see "Prior art" above. Still not independently re-verified against a live subagent run (the live test above used a plain `Bash` tool call, not an `Agent` subagent spawn, specifically to avoid needing to force that).
+- Did not check behavior for headless/`-p` mode sessions beyond what the live test covered — token-usage/session-crons/background-task fields showed up in the `Stop` payload that weren't documented in the official hooks reference, suggesting the payload shape may be richer/different in some modes than the docs describe; not fully catalogued.
+- The internal JSONL schema (block types, top-level `type` values) was only sampled from a couple of sessions; the docs explicitly warn it can change between Claude Code versions, so any real implementation should treat this defensively (see PR-9's spike for that).
 
 ## Sources
 
