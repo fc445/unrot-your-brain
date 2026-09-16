@@ -1,0 +1,11 @@
+[project]
+name = "pr-6-langgraph-candidate-proposer"
+version = "0.1.0"
+description = "PR-6 spike: thin LangGraph candidate proposer over transcript windows"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph",
+    "langchain",
+    "langchain-openai",
+    "pydantic",
+]
