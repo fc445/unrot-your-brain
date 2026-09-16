@@ -15,26 +15,38 @@ Two-node graph:
                          load-bearingly and without explanation, and classifies
                          the human's next turn as accepted / questioned / unclear
 
+Model access goes through an OpenAI-compatible endpoint (OpenRouter by default,
+or any local server such as Ollama/LM Studio) rather than a direct provider SDK.
+
 Usage:
-    export ANTHROPIC_API_KEY=...
+    export OPENROUTER_API_KEY=...
     python3 candidate_proposer.py --latest
     python3 candidate_proposer.py <path-to-session.jsonl>
+
+    # local model instead of OpenRouter:
+    python3 candidate_proposer.py --latest \
+        --base-url http://localhost:11434/v1 --api-key ollama --model llama3.1
 
 Not a product: no storage, no MCP server, no budget-limiting to 1-2 flags.
 Just enough to look at real output and make the sequencing call.
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Literal, Optional, TypedDict
 
 from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, START, END
-from langchain.chat_models import init_chat_model
+from langchain_openai import ChatOpenAI
 
 sys.path.insert(0, str(Path(__file__).parent))
 from jsonl_transcript_parser import parse_file, find_latest_session  # noqa: E402
+
+
+DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_MODEL = "anthropic/claude-sonnet-4.5"
 
 
 class Candidate(BaseModel):
@@ -112,28 +124,31 @@ Transcript excerpts:
 """
 
 
-def propose_candidates(state: DetectorState) -> dict:
-    model = init_chat_model("anthropic:claude-sonnet-5", temperature=0)
-    structured_model = model.with_structured_output(CandidateList)
+def make_propose_candidates(model_name: str, base_url: str, api_key: str):
+    def propose_candidates(state: DetectorState) -> dict:
+        model = ChatOpenAI(model=model_name, base_url=base_url, api_key=api_key, temperature=0)
+        structured_model = model.with_structured_output(CandidateList)
 
-    excerpts = []
-    for w in state["windows"]:
-        block = f"--- assistant (line {w['assistant_line']}) ---\n{w['assistant_text']}\n"
-        if w["next_user_text"]:
-            block += f"--- human, next turn ---\n{w['next_user_text']}\n"
-        else:
-            block += "--- human, next turn ---\n(none)\n"
-        excerpts.append(block)
+        excerpts = []
+        for w in state["windows"]:
+            block = f"--- assistant (line {w['assistant_line']}) ---\n{w['assistant_text']}\n"
+            if w["next_user_text"]:
+                block += f"--- human, next turn ---\n{w['next_user_text']}\n"
+            else:
+                block += "--- human, next turn ---\n(none)\n"
+            excerpts.append(block)
 
-    prompt = PROMPT_TEMPLATE.format(excerpts="\n".join(excerpts))
-    result: CandidateList = structured_model.invoke(prompt)
-    return {"candidates": result.candidates}
+        prompt = PROMPT_TEMPLATE.format(excerpts="\n".join(excerpts))
+        result: CandidateList = structured_model.invoke(prompt)
+        return {"candidates": result.candidates}
+
+    return propose_candidates
 
 
-def build_graph():
+def build_graph(model_name: str, base_url: str, api_key: str):
     graph = StateGraph(DetectorState)
     graph.add_node("load_transcript", load_transcript)
-    graph.add_node("propose_candidates", propose_candidates)
+    graph.add_node("propose_candidates", make_propose_candidates(model_name, base_url, api_key))
     graph.add_edge(START, "load_transcript")
     graph.add_edge("load_transcript", "propose_candidates")
     graph.add_edge("propose_candidates", END)
@@ -144,6 +159,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("session_file", nargs="?", help="Path to a .jsonl session file")
     parser.add_argument("--latest", action="store_true", help="Use the most recently modified session under ~/.claude/projects")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Model id to request from the endpoint (default: {DEFAULT_MODEL})")
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help=f"OpenAI-compatible endpoint (default: OpenRouter, {DEFAULT_BASE_URL})")
+    parser.add_argument("--api-key", default=None, help="API key; defaults to $OPENROUTER_API_KEY, falling back to $OPENAI_API_KEY")
     args = parser.parse_args()
 
     if args.latest:
@@ -161,7 +179,12 @@ def main() -> None:
         print(f"File not found: {path}", file=sys.stderr)
         sys.exit(1)
 
-    app = build_graph()
+    api_key = args.api_key or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        print("No API key found: pass --api-key or set $OPENROUTER_API_KEY (or $OPENAI_API_KEY for a local server that ignores it).", file=sys.stderr)
+        sys.exit(1)
+
+    app = build_graph(args.model, args.base_url, api_key)
     result = app.invoke({"session_path": str(path)})
 
     print(f"Session: {path}")
