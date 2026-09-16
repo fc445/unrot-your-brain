@@ -8,4 +8,5 @@ dependencies = [
     "langchain",
     "langchain-openai",
     "pydantic",
+    "python-dotenv",
 ]

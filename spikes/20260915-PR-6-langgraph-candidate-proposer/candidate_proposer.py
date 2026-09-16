@@ -18,6 +18,11 @@ Two-node graph:
 Model access goes through an OpenAI-compatible endpoint (OpenRouter by default,
 or any local server such as Ollama/LM Studio) rather than a direct provider SDK.
 
+LangSmith tracing is picked up automatically from a .env file (LANGSMITH_TRACING,
+LANGSMITH_API_KEY, LANGSMITH_PROJECT, and LANGSMITH_ENDPOINT if your workspace is
+outside the default US region) — see .env.example. No code-level opt-in needed;
+LangGraph/LangChain instrument themselves from those env vars.
+
 Usage:
     export OPENROUTER_API_KEY=...
     python3 candidate_proposer.py --latest
@@ -37,9 +42,12 @@ import sys
 from pathlib import Path
 from typing import Literal, Optional, TypedDict
 
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, START, END
 from langchain_openai import ChatOpenAI
+
+load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).parent))
 from jsonl_transcript_parser import parse_file, find_latest_session  # noqa: E402
