@@ -1,0 +1,25 @@
+[project]
+name = "unrot"
+version = "0.1.0"
+description = "Detects concepts you accepted from an AI agent without understanding, and builds a personal knowledge graph from what you confirm."
+readme = "README.md"
+requires-python = ">=3.11"
+# The store is deliberately stdlib-only. Detector/resolver deps land with their own tickets.
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/unrot"]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# src layout: put the package on the path directly rather than depending on an
+# editable install. Hatchling writes its .pth without a trailing newline, which
+# Python 3.14 does not process, so the editable install silently stops resolving.
+pythonpath = ["src"]
