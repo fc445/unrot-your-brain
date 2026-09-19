@@ -1,0 +1,10 @@
+[project]
+name = "deep-agent"
+version = "0.1.0"
+description = "Minimal Deep Agents research agent, per the deepagents-python-quickstart skill"
+requires-python = ">=3.11"
+dependencies = [
+    "deepagents",
+    "langchain-openai",
+    "python-dotenv",
+]
