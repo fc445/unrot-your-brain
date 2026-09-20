@@ -39,18 +39,26 @@ def _cmd_ingest(args) -> int:
 
 def _cmd_list(args) -> int:
     conn = connect(args.home)
+    # Ordered by when the session happened, not when we happened to read it --
+    # a bulk first ingest stamps every row within the same second, which makes
+    # last_ingested_at a tiebreaker rather than an order.
     rows = conn.execute(
-        "SELECT s.*, (SELECT count(*) FROM raw_turns t WHERE t.session_id = s.session_id"
-        "   AND t.role = 'user' AND t.is_meta = 0 AND t.is_sidechain = 0) AS human_turns"
-        " FROM raw_sessions s ORDER BY last_ingested_at DESC"
+        "SELECT s.*,"
+        " (SELECT count(*) FROM raw_turns t WHERE t.session_id = s.session_id"
+        "   AND t.role = 'user' AND t.is_meta = 0 AND t.is_sidechain = 0) AS human_turns,"
+        " (SELECT max(occurred_at) FROM raw_turns t WHERE t.session_id = s.session_id)"
+        "   AS last_activity"
+        " FROM raw_sessions s"
+        " ORDER BY COALESCE(last_activity, s.last_ingested_at) DESC"
     ).fetchall()
     if not rows:
         print("Nothing ingested yet. Try: python -m unrot.capture ingest")
         return 0
-    print(f"{'session':<38} {'lines':>7} {'human':>6} {'entrypoint':<16} cwd")
+    print(f"{'when':<11} {'session':<38} {'lines':>7} {'human':>6} {'entrypoint':<16} cwd")
     for row in rows:
+        when = (row["last_activity"] or row["last_ingested_at"] or "")[:10]
         print(
-            f"{row['session_id']:<38} {row['lines_ingested']:>7}"
+            f"{when:<11} {row['session_id']:<38} {row['lines_ingested']:>7}"
             f" {row['human_turns']:>6} {(row['entrypoint'] or '-'):<16}"
             f" {row['cwd'] or '-'}"
         )
