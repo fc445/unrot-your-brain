@@ -4,8 +4,15 @@ version = "0.1.0"
 description = "Detects concepts you accepted from an AI agent without understanding, and builds a personal knowledge graph from what you confirm."
 readme = "README.md"
 requires-python = ">=3.11"
-# The store is deliberately stdlib-only. Detector/resolver deps land with their own tickets.
-dependencies = []
+# The store and capture layers are deliberately stdlib-only; these are the
+# detector's, and nothing below `unrot.detector` imports them. LangChain is here
+# for the OpenAI-compatible client and for LangSmith tracing, which the repo
+# already uses -- not for an agent framework: the detector is one call, not a graph.
+dependencies = [
+    "langchain-openai>=0.2",
+    "pydantic>=2.7",
+    "python-dotenv>=1.0",
+]
 
 [build-system]
 requires = ["hatchling"]
