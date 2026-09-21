@@ -7,17 +7,16 @@ import json
 import sys
 
 from ..capture import connect as connect_raw
+from ..env import load_env
 from . import prompt as prompt_module
 from .detect import DEFAULT_MAX_CANDIDATES, detect, detector_version
 from .model import ModelConfig, build_proposer
 from .windows import build_windows, chunk_windows
 
-try:  # tracing and keys come from a .env if one is present; never required
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except ImportError:  # pragma: no cover
-    pass
+# Keys, the model id and the endpoint all come from the project's `.env` if one
+# is present; none of them are required, and a real environment variable always
+# wins over the file.
+load_env()
 
 
 def _sessions(conn, args) -> list[str]:

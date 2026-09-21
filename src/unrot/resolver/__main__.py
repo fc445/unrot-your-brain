@@ -12,6 +12,7 @@ import argparse
 import sys
 
 from ..capture import connect as connect_raw
+from ..env import describe, env_path, load_env
 from ..detector import build_proposer, detect
 from ..model import ModelConfig
 from ..store import compile_state
@@ -28,12 +29,10 @@ from .resolve import (
 )
 from .submissions import from_candidate, manual
 
-try:  # tracing and keys come from a .env if one is present; never required
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except ImportError:  # pragma: no cover
-    pass
+# Keys, the model id and the endpoint all come from the project's `.env` if one
+# is present; none of them are required, and a real environment variable always
+# wins over the file.
+load_env()
 
 
 def _deciding(args):
@@ -196,6 +195,22 @@ def _cmd_log(args) -> int:
     return 0
 
 
+def _cmd_env(args) -> int:
+    """What configuration is in effect, and which file it came from."""
+    del args
+    loaded = load_env()
+    if loaded:
+        for path in loaded:
+            print(f"read {path}")
+    else:
+        print(f"no .env found. Copy .env.example to {env_path()} to make one.")
+    print()
+    for name, status, help_text in describe():
+        print(f"  {name:<20} {status}")
+        print(f"  {'':<20} {help_text}")
+    return 0
+
+
 def _cmd_print_prompt(args) -> int:
     """See what the model is actually asked, against the real graph. No call made."""
     conn = open_store(args.home)
@@ -256,6 +271,9 @@ def main(argv=None) -> int:
     p_log = sub.add_parser("log", help="what the resolver decided, and what you said about it")
     p_log.add_argument("--limit", type=int, default=20)
     p_log.set_defaults(func=_cmd_log)
+
+    p_env = sub.add_parser("env", help="what model and endpoint are configured, and from where")
+    p_env.set_defaults(func=_cmd_env)
 
     p_rec = sub.add_parser("recompile", help="re-fold the log")
     p_rec.set_defaults(func=_cmd_recompile)

@@ -47,7 +47,19 @@ PYTHONPATH=src .venv/bin/python -m unrot.resolver run --limit 5
 ```
 
 It reads captured sessions, runs the detector, resolves each candidate into the
-graph, and records that the session was examined. Needs `$OPENROUTER_API_KEY`.
+graph, and records that the session was examined.
+
+Configuration lives in a `.env` at the repo root — copy `.env.example` and fill
+in the key. `UNROT_MODEL` picks which model answers and `UNROT_BASE_URL` points
+at a local server if you would rather transcripts never left the machine. The
+file is found from any working directory, and a real environment variable beats
+it, so `UNROT_MODEL=anthropic/claude-haiku-4-5 python -m unrot.resolver run`
+overrides it for one run without editing anything. To see what is in effect:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m unrot.resolver env
+```
+
 `--no-model` runs the resolution step on string matching alone (the detector
 still needs a key); near-duplicates then land as separate concepts to merge
 later, and it says so rather than downgrading silently.
