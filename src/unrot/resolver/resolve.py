@@ -221,6 +221,101 @@ def resolve(
     )
 
 
+def resolve_reference(
+    conn: sqlite3.Connection,
+    text: str,
+    *,
+    decide,
+    model_label: str = "none",
+    origin: str = "local",
+    recompile: bool = True,
+) -> Resolution:
+    """Resolve a name to a concept WITHOUT recording an encounter.
+
+    For concepts that learning material names in passing. They belong in the
+    graph -- that is what makes clustering possible later -- but the user never
+    met them, and writing an encounter would say they did. The whole point of
+    the S1 split is that a concept with no encounters is a valid, different
+    thing: `referenced`, which is never surfaced and never counts toward the
+    flag budget.
+
+    Still the same write path. Identity is decided here, by the same matcher and
+    the same decider, and the judgment is appended like any other -- a second
+    route into the graph that skipped that would be exactly what PR-21 forbids.
+    """
+    known = match.current(conn)
+    hit = match.exact(known, text)
+
+    if hit is not None:
+        decision, concept_id, canonical = "existing", hit.concept_id, hit.canonical_name
+        reasoning = f"`{text}` already names this concept."
+        alias, used_model = None, False
+    else:
+        stub = Submission(
+            text=text, paraphrase=f"Named in learning material: {text}.",
+            source="material", version="material",
+        )
+        answer = decide(stub, match.shortlist(known, text)) or {}
+        decision = str(answer.get("decision") or "").strip().lower()
+        if decision not in DECISIONS:
+            decision = "new"
+        by_id = {c.concept_id: c for c in known}
+        target = by_id.get(str(answer.get("concept_id") or ""))
+        if decision in ("existing", "alias") and target is None:
+            decision = "new"
+        canonical = str(answer.get("canonical_name") or "").strip() or text
+        alias = None
+        if decision == "new":
+            concept_id = _concept_id(conn, canonical)
+        else:
+            concept_id, canonical = target.concept_id, target.canonical_name
+            if decision == "alias":
+                alias = str(answer.get("alias") or text).strip()
+        reasoning = str(answer.get("reasoning") or "").strip() or "No reasoning given."
+        used_model = True
+
+    provenance = {"resolver_version": resolver_version(model_label if used_model else "none")}
+    judgment_event_id = append(
+        conn,
+        "resolver_judgment",
+        {
+            "input_text": text,
+            "decision": decision,
+            "reasoning": reasoning,
+            "concept_id": concept_id,
+            "source": "material",
+            "decided_without_model": not used_model,
+        },
+        subject_id=concept_id,
+        origin=origin,
+        provenance=provenance,
+    )
+    if decision == "new":
+        append(
+            conn, "concept_created",
+            {"concept_id": concept_id, "canonical_name": canonical},
+            origin=origin, provenance=provenance,
+        )
+    elif decision == "alias" and alias:
+        append(
+            conn, "alias_added", {"concept_id": concept_id, "alias": alias},
+            origin=origin, provenance=provenance,
+        )
+
+    if recompile:
+        compile_state(conn)
+    return Resolution(
+        submission=Submission(text=text, paraphrase="", source="material", version="material"),
+        decision=decision,
+        concept_id=concept_id,
+        canonical_name=canonical,
+        encounter_id="",
+        reasoning=reasoning,
+        judgment_event_id=judgment_event_id,
+        decided_without_model=not used_model,
+    )
+
+
 def resolve_all(
     conn: sqlite3.Connection,
     submissions,

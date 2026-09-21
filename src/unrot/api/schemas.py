@@ -50,6 +50,17 @@ class ExplanationOut(BaseModel):
     grader_version: str | None = None
 
 
+class MaterialOut(BaseModel):
+    material_id: str
+    #: 'textual_with_sources' | 'sources_only'. The second is a shipped format,
+    #: not a degraded one -- it generates nothing and so can invent nothing.
+    format: str
+    body: str | None = None
+    sources: list[dict] = Field(default_factory=list)
+    generated_at: str
+    delivered_at: str | None = None
+
+
 class ConceptOut(BaseModel):
     concept_id: str
     name: str
@@ -64,6 +75,7 @@ class ConceptOut(BaseModel):
     latest_level: str | None = None
     encounters: list[EncounterOut] = Field(default_factory=list)
     explanations: list[ExplanationOut] = Field(default_factory=list)
+    material: list[MaterialOut] = Field(default_factory=list)
 
 
 class CaptureOut(BaseModel):
@@ -136,3 +148,9 @@ class GradedOut(BaseModel):
     #: distinction matters: the user must not be told they failed a check that
     #: was never actually run.
     graded: bool = True
+
+
+class MadeOut(BaseModel):
+    material: MaterialOut
+    concept: ConceptOut | None = None
+    counts: dict[str, int]

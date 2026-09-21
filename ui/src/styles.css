@@ -631,3 +631,97 @@ button {
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
+
+/* --------------------------------------------------------------- material -- */
+/* Sources sit beside the prose rather than behind a toggle. This explains the
+ * things the reader cannot evaluate, so where it came from is part of the
+ * content, not a footnote. */
+
+.material {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-sunk);
+}
+
+.material-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.material-note {
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}
+
+.material-body {
+  margin: 12px 0 0;
+  max-width: 68ch;
+  color: var(--ink);
+  line-height: 1.6;
+}
+
+.sources {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.sources li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--ink-soft);
+}
+
+.sources li[data-verified="false"] {
+  color: var(--ink-faint);
+}
+
+.source-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.source-kind {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.sources a {
+  color: var(--learning);
+  text-decoration: none;
+}
+
+.sources a:hover {
+  text-decoration: underline;
+}
+
+.source-note {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+/* A refusal, worded as a result. Declining to write something unsupported is
+ * the gate working; it should not look like the backend fell over. */
+.material-refused {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-sunk);
+  color: var(--ink-soft);
+  font-size: 13px;
+  max-width: 68ch;
+}

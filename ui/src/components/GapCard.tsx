@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Check } from "./Check";
 import { CheckResult } from "./CheckResult";
+import { MaterialBlock } from "./MaterialBlock";
 import { Moment } from "./Moment";
-import type { Concept, Encounter, Graded, Level } from "../types";
+import type { Concept, Encounter, Format, Graded, Level } from "../types";
 
 function when(iso: string | null): string {
   if (!iso) return "unknown";
@@ -32,6 +33,11 @@ interface Props {
    *  feedback the check produces. */
   justGraded?: Graded;
   onDismissResult: () => void;
+  onMaterial: (conceptId: string, format: Format) => void;
+  /** Non-null while this card is waiting on generation, or explaining why it
+   *  refused. Refusing is the provenance gate working, not an error, so it is
+   *  worded as a result rather than a failure. */
+  materialState?: { busy: boolean; error: string | null };
 }
 
 export function GapCard({
@@ -41,6 +47,8 @@ export function GapCard({
   onGraded,
   justGraded,
   onDismissResult,
+  onMaterial,
+  materialState,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -126,6 +134,15 @@ export function GapCard({
         <CheckResult result={justGraded} onDismiss={onDismissResult} />
       )}
 
+      {revealing &&
+        concept.material.map((m) => (
+          <MaterialBlock key={m.material_id} material={m} />
+        ))}
+
+      {revealing && materialState?.error && (
+        <p className="material-refused">{materialState.error}</p>
+      )}
+
       {revealing && <div className="card-meta">
         <span>{when(shown?.occurred_at ?? concept.last_seen_at)}</span>
         {shown?.session_id && shown.source !== "manual" && (
@@ -188,6 +205,28 @@ export function GapCard({
           >
             {latest ? "Try explaining it again" : "Explain it"}
           </button>
+        )}
+        {/* Never automatic. The gap graph is the product; this is a pluggable
+            stage on top of it, so material exists only when it is asked for. */}
+        {concept.state !== "referenced" && (
+          <>
+            <button
+              className="btn"
+              data-variant="ghost"
+              disabled={materialState?.busy}
+              onClick={() => onMaterial(concept.concept_id, "textual_with_sources")}
+            >
+              {materialState?.busy ? "Working\u2026" : "Explain it to me"}
+            </button>
+            <button
+              className="btn"
+              data-variant="ghost"
+              disabled={materialState?.busy}
+              onClick={() => onMaterial(concept.concept_id, "sources_only")}
+            >
+              Just show me where to read
+            </button>
+          </>
         )}
         {withMoment && (
           <button

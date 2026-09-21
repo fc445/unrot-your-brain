@@ -113,9 +113,13 @@ def shortlist(known: list[Known], text: str, limit: int = SHORTLIST) -> list[Kno
     can only ever answer "new", which would make every misspelling its own
     concept the moment the string matcher fails.
     """
+    # Ties break toward concepts the user has actually met. Material naming ~5
+    # concepts per piece means scaffolding outnumbers real concepts in the graph
+    # very quickly, and a shortlist dominated by things that entered via someone
+    # else's explanation is a worse menu than one led by what the user has hit.
     scored = sorted(
         ((max(_overlap(text, name) for name in c.names), c) for c in known),
-        key=lambda pair: (-pair[0], pair[1].canonical_name),
+        key=lambda pair: (-pair[0], -pair[1].encounter_count, pair[1].canonical_name),
     )
     hits = [c for score, c in scored if score > 0][:limit]
     if hits:

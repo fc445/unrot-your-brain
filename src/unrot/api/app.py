@@ -31,6 +31,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..capture import paths
+from ..material import TEXTUAL
 from ..store import compile_state
 from ..store.__main__ import open_raw, open_store
 from . import read
@@ -41,6 +42,8 @@ from .schemas import (
     EncounterOut,
     ExplanationOut,
     GradedOut,
+    MadeOut,
+    MaterialOut,
     JudgmentOut,
     MomentOut,
     MomentTurn,
@@ -95,6 +98,7 @@ def _concept_out(concept: read.Concept) -> ConceptOut:
     data = vars(concept) | {
         "encounters": [_encounter_out(e) for e in concept.encounters],
         "explanations": [ExplanationOut(**vars(x)) for x in concept.explanations],
+        "material": [MaterialOut(**vars(m)) for m in concept.material],
         "unjudged": concept.unjudged,
     }
     return ConceptOut(**data)
@@ -284,6 +288,91 @@ def create_app() -> FastAPI:
             concept=_concept_out(concept) if concept else None,
             counts={b: sum(1 for c in found if c.bucket == b) for b in read.BUCKETS},
             graded=graded and live,
+        )
+
+    @app.post("/api/concepts/{concept_id}/material", response_model=MadeOut)
+    def make(concept_id: str, format: str = TEXTUAL) -> MadeOut:
+        """Generate material for a gap, in the requested format, and deliver it.
+
+        Never automatic. The gap graph is the product and this is a pluggable
+        output stage on top of it, so material exists only when it is asked for
+        -- which is also what makes "turn it off" a real option rather than a
+        setting that has to be honoured in ten places.
+        """
+        from ..grader import build_jev_grader  # noqa: F401  (key presence check)
+        from ..material import (
+            NotGrounded,
+            SOURCES_ONLY,
+            TEXTUAL as TEXTUAL_FORMAT,
+            WouldRecurse,
+            build_search,
+            build_writer,
+            deliver,
+            gather,
+            sources_only,
+            textual,
+        )
+        from ..model import ModelConfig
+        from ..resolver import resolve_reference, strict
+
+        if format not in (TEXTUAL_FORMAT, SOURCES_ONLY):
+            raise HTTPException(400, f"unknown format {format!r}")
+
+        config = ModelConfig.from_env()
+        search = build_search(config) if config.api_key else None
+
+        with stores() as (conn, raw):
+            try:
+                found = gather(conn, raw, concept_id, search=search)
+            except ValueError as exc:
+                raise HTTPException(404, str(exc)) from exc
+
+            try:
+                if format == SOURCES_ONLY:
+                    made = sources_only(conn, concept_id, found)
+                else:
+                    if not config.api_key:
+                        raise NotGrounded(
+                            "no model configured, so nothing can be written."
+                            " The sources-only format still works."
+                        )
+                    decide = strict
+                    made = textual(
+                        conn,
+                        concept_id,
+                        found,
+                        write=build_writer(config),
+                        resolve_named=lambda term: resolve_reference(
+                            conn, term, decide=decide, recompile=False
+                        ),
+                        model_label=config.label,
+                    )
+            except WouldRecurse as exc:
+                raise HTTPException(409, str(exc)) from exc
+            except NotGrounded as exc:
+                # 422 rather than 500: refusing to write something unsupported
+                # is the gate working, not the server failing.
+                raise HTTPException(422, str(exc)) from exc
+
+            deliver(conn, made.material_id)
+            concepts = read.concepts(conn, _home())
+            row = conn.execute(
+                "SELECT * FROM compiled_material WHERE material_id = ?",
+                (made.material_id,),
+            ).fetchone()
+
+        concept = next((c for c in concepts if c.concept_id == concept_id), None)
+        return MadeOut(
+            material=MaterialOut(
+                material_id=row["material_id"],
+                format=row["format"],
+                body=row["body"],
+                sources=json.loads(row["sources"] or "[]"),
+                generated_at=row["generated_at"],
+                delivered_at=row["delivered_at"],
+            ),
+            concept=_concept_out(concept) if concept else None,
+            counts={b: sum(1 for c in concepts if c.bucket == b) for b in read.BUCKETS},
         )
 
     @app.get("/api/encounters/{encounter_id}/moment", response_model=MomentOut)

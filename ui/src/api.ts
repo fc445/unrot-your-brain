@@ -1,4 +1,12 @@
-import type { Check, Graded, Judgment, Moment, Surface } from "./types";
+import type {
+  Check,
+  Format,
+  Graded,
+  Judgment,
+  Made,
+  Moment,
+  Surface,
+} from "./types";
 
 /** Thrown for anything that is not a successful JSON response.
  *
@@ -59,3 +67,9 @@ export const explain = (conceptId: string, text: string) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
+
+export const makeMaterial = (conceptId: string, format: Format) =>
+  call<Made>(
+    `/api/concepts/${encodeURIComponent(conceptId)}/material?format=${format}`,
+    { method: "POST" },
+  );

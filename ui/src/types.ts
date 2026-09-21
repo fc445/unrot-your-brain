@@ -76,6 +76,35 @@ export interface Graded {
   graded: boolean;
 }
 
+export type Format = "textual_with_sources" | "sources_only";
+
+export interface MaterialSource {
+  kind: string;
+  ref: string;
+  title: string;
+  excerpt: string | null;
+  /** Whether the content was actually reached and read. Generated prose may
+   *  cite nothing else; a sources-only list may show an unverified pointer,
+   *  because you can click it and judge for yourself. */
+  verified: boolean;
+  note: string | null;
+}
+
+export interface Material {
+  material_id: string;
+  format: Format;
+  body: string | null;
+  sources: MaterialSource[];
+  generated_at: string;
+  delivered_at: string | null;
+}
+
+export interface Made {
+  material: Material;
+  concept: Concept | null;
+  counts: Record<string, number>;
+}
+
 export interface Concept {
   concept_id: string;
   name: string;
@@ -90,6 +119,7 @@ export interface Concept {
   latest_level: Level | null;
   encounters: Encounter[];
   explanations: Explanation[];
+  material: Material[];
 }
 
 export interface Capture {

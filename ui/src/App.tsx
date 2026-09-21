@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, getSurface, judge } from "./api";
+import { ApiError, getSurface, judge, makeMaterial } from "./api";
 import { EmptyState } from "./components/EmptyState";
 import { GapCard } from "./components/GapCard";
-import type { Bucket, Graded, Surface } from "./types";
+import type { Bucket, Format, Graded, Surface } from "./types";
 
 /** Section copy. The order matters: what needs you, then what you are working
  *  on, then what is behind you. Ending on "closed" is the whole shame-spiral
@@ -33,6 +33,9 @@ export default function App() {
   // card because a `causal` grade moves the card to a different section and
   // destroys it on the way.
   const [justGraded, setJustGraded] = useState<Graded | null>(null);
+  const [material, setMaterial] = useState<
+    Record<string, { busy: boolean; error: string | null }>
+  >({});
 
   const load = useCallback(async () => {
     try {
@@ -67,6 +70,28 @@ export default function App() {
       );
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function onMaterial(conceptId: string, format: Format) {
+    setMaterial((m) => ({ ...m, [conceptId]: { busy: true, error: null } }));
+    try {
+      await makeMaterial(conceptId, format);
+      setMaterial((m) => ({ ...m, [conceptId]: { busy: false, error: null } }));
+      await load();
+    } catch (error: unknown) {
+      // A refusal is the provenance gate working, not a broken backend, so it
+      // stays on the card rather than replacing the page with an error state.
+      setMaterial((m) => ({
+        ...m,
+        [conceptId]: {
+          busy: false,
+          error:
+            error instanceof ApiError
+              ? error.message
+              : "Could not make anything for that.",
+        },
+      }));
     }
   }
 
@@ -171,6 +196,8 @@ export default function App() {
                       : undefined
                   }
                   onDismissResult={() => setJustGraded(null)}
+                  onMaterial={onMaterial}
+                  materialState={material[concept.concept_id]}
                 />
               ))}
           </section>

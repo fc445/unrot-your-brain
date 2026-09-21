@@ -70,6 +70,16 @@ class Explanation:
 
 
 @dataclass
+class MaterialOut:
+    material_id: str
+    format: str
+    body: str | None
+    sources: list[dict]
+    generated_at: str
+    delivered_at: str | None
+
+
+@dataclass
 class Concept:
     concept_id: str
     name: str
@@ -83,6 +93,7 @@ class Concept:
     latest_level: str | None
     encounters: list[Encounter] = field(default_factory=list)
     explanations: list[Explanation] = field(default_factory=list)
+    material: list[MaterialOut] = field(default_factory=list)
 
     @property
     def unjudged(self) -> int:
@@ -179,6 +190,23 @@ def concepts(conn: sqlite3.Connection, root=None) -> list[Concept]:
             )
         )
 
+    by_material: dict[str, list[MaterialOut]] = {}
+    for row in conn.execute(
+        "SELECT m.*, mc.concept_id FROM compiled_material m"
+        " JOIN compiled_material_concepts mc ON mc.material_id = m.material_id"
+        " ORDER BY m.generated_at DESC"
+    ):
+        by_material.setdefault(row["concept_id"], []).append(
+            MaterialOut(
+                material_id=row["material_id"],
+                format=row["format"],
+                body=row["body"],
+                sources=json.loads(row["sources"] or "[]"),
+                generated_at=row["generated_at"],
+                delivered_at=row["delivered_at"],
+            )
+        )
+
     out: list[Concept] = []
     for row in conn.execute(
         "SELECT * FROM compiled_concepts WHERE merged_into IS NULL"
@@ -203,6 +231,15 @@ def concepts(conn: sqlite3.Connection, root=None) -> list[Concept]:
                 latest_level=row["latest_level"],
                 encounters=found,
                 explanations=explained,
+                # Only what was made FOR this concept. Material that merely
+                # named it in passing is what made it `referenced`, and showing
+                # that as its own material would present scaffolding as
+                # something the user was taught.
+                material=[
+                    m
+                    for m in by_material.get(row["concept_id"], [])
+                    if m.sources or m.body
+                ],
             )
         )
     return out

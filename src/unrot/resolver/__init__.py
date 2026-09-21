@@ -18,6 +18,7 @@ from .resolve import (
     record_analysis,
     resolve,
     resolve_all,
+    resolve_reference,
     resolver_version,
 )
 from .submissions import MANUAL_VERSION, Submission, fingerprint, from_candidate, manual
@@ -43,6 +44,7 @@ __all__ = [
     "record_analysis",
     "resolve",
     "resolve_all",
+    "resolve_reference",
     "resolver_version",
     "shortlist",
     "strict",

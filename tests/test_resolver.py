@@ -469,3 +469,22 @@ def test_resolver_version_records_model_and_prompt(conn):
     # Editing the prompt must change this, or a change in what the machine means
     # by "the same concept" becomes indistinguishable from the user's world moving.
     assert version != resolver_version("other-model")
+
+
+def test_the_shortlist_leads_with_concepts_the_user_has_actually_met(conn):
+    """Material names ~5 concepts each, so scaffolding outnumbers reality fast.
+
+    A shortlist led by things that entered the graph via someone else's
+    explanation is a worse menu than one led by what the user has hit, and the
+    resolver's answer is only as good as the options it is shown.
+    """
+    from unrot.resolver import resolve_reference
+
+    met = resolve(conn, a_term(text="locking"), decide=strict)
+    resolve(conn, a_term(text="locking", session_id="s1"), decide=strict)
+    for name in ("locking semantics", "locking primitives", "locking overhead"):
+        resolve_reference(conn, name, decide=strict)
+
+    ranked = match.shortlist(match.current(conn), "locking strategy")
+    assert ranked[0].concept_id == met.concept_id
+    assert ranked[0].encounter_count == 2
