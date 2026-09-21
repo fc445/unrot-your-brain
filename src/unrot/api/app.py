@@ -232,8 +232,18 @@ def create_app() -> FastAPI:
 
         @app.get("/{path:path}", include_in_schema=False)
         def spa(path: str) -> FileResponse:
-            """Any non-API path is the single-page app; routing happens client-side."""
-            return FileResponse(UI_DIST / "index.html")
+            """Any non-API path is the single-page app; routing happens client-side.
+
+            Served with no-store. The assets beside it are content-hashed and
+            safe to cache forever, but `index.html` is the thing that names
+            which hash is current -- so a cached copy silently pins the browser
+            to a bundle that no longer exists on disk. That fails as "my change
+            did not apply", which costs far more time than re-fetching 400 bytes.
+            """
+            return FileResponse(
+                UI_DIST / "index.html",
+                headers={"Cache-Control": "no-store, must-revalidate"},
+            )
 
     return app
 

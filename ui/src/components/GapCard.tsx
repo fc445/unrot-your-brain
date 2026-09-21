@@ -29,6 +29,13 @@ export function GapCard({ concept, busy, onJudge }: Props) {
     concept.encounters.find((e) => e.judgment === null) ?? concept.encounters[0];
   const shown = pending ?? concept.encounters[0];
 
+  // The moment comes from whichever encounter actually has a transcript behind
+  // it, which is not always the one being shown. A concept met once in a
+  // session and once by hand shows the hand-typed encounter (it is newer) and
+  // would otherwise offer no moment at all -- hiding a real transcript the user
+  // could have looked at.
+  const withMoment = concept.encounters.find((e) => e.resolvable);
+
   return (
     <article className="card" data-bucket={concept.bucket} data-busy={busy}>
       <header className="card-head">
@@ -55,8 +62,11 @@ export function GapCard({ concept, busy, onJudge }: Props) {
         )}
 
         {/* Provenance, not ranking. A gap you typed in yourself is as real as
-            one we found, and is treated identically everywhere else. */}
-        {shown?.source === "manual" && (
+            one we found, and is treated identically everywhere else.
+            Only when EVERY encounter was hand-typed: a concept met once in a
+            session and once by hand was not "added by hand", and saying so
+            beside a transcript moment reads as a contradiction. */}
+        {concept.encounters.every((e) => e.source === "manual") && (
           <span className="pip" data-tone="quiet">
             added by hand
           </span>
@@ -104,7 +114,7 @@ export function GapCard({ concept, busy, onJudge }: Props) {
             </button>
           </>
         )}
-        {shown?.resolvable && (
+        {withMoment && (
           <button
             className="btn"
             data-variant="ghost"
@@ -116,7 +126,7 @@ export function GapCard({ concept, busy, onJudge }: Props) {
         )}
       </div>
 
-      {open && shown && <Moment encounterId={shown.encounter_id} />}
+      {open && withMoment && <Moment encounterId={withMoment.encounter_id} />}
     </article>
   );
 }
