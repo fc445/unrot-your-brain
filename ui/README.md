@@ -39,9 +39,27 @@ both modes. Open <http://localhost:5173>.
 
 ## Getting data into it
 
-**The resolver (PR-21) is not built**, which means nothing currently turns
-detector output into events, which means the event log is empty. Until it
-exists, seed development fixtures:
+Real data, via the resolver (PR-21) — this is the command that joins the chain
+up:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m unrot.resolver run --limit 5
+```
+
+It reads captured sessions, runs the detector, resolves each candidate into the
+graph, and records that the session was examined. Needs `$OPENROUTER_API_KEY`.
+`--no-model` runs the resolution step on string matching alone (the detector
+still needs a key); near-duplicates then land as separate concepts to merge
+later, and it says so rather than downgrading silently.
+
+Journey 10, a term from outside your terminal:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m unrot.resolver add "something about backpressure?"
+```
+
+**Development fixtures** are still there for working on the UI without spending
+a model call:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m unrot.store seed
@@ -88,14 +106,12 @@ Nothing in the palette is red except an actual backend failure.
 
 ## Known gaps
 
-**"Clean" cannot yet mean "we looked at this session and found nothing."**
-Nothing records that the detector ran over a session, so a session that produced
-no flags is indistinguishable from one never analysed. The surface therefore
-reports `not_analysed` until *some* encounter exists anywhere, and reports
-`clean` only once everything found has been dealt with. Both are honest, but
-neither is the per-session clean bill of health journey 3 eventually wants —
-**PR-21 should append a `session_analysed` event**, and `Capture.sessions_with_flags`
-becomes a real coverage number when it does.
+**Re-asking at a distance is not built.** One answer settles a concept, so a
+concept met in three sessions asks once. That is right for now, but journey 8's
+spaced retrieval — being re-asked weeks later, in a different context, to find
+out whether it stuck — needs the question to come back on elapsed time. The
+unjudged encounters are retained honestly in the meantime, so the data a future
+loop needs is already there.
 
 Also out of scope here, per the ticket: candidate-density visibility (journey
 5), the domain heatmap, graph visualisation, and the timeline.

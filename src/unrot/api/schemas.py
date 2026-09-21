@@ -47,7 +47,8 @@ class CaptureOut(BaseModel):
     sessions: int
     human_turns: int
     last_activity: str | None = None
-    sessions_with_flags: int
+    sessions_analysed: int
+    sessions_clean: int
 
 
 class SurfaceOut(BaseModel):

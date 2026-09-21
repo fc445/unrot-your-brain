@@ -54,7 +54,12 @@ export interface Capture {
   sessions: number;
   human_turns: number;
   last_activity: string | null;
-  sessions_with_flags: number;
+  /** Sessions the detector has actually examined, and how many of those it
+   *  examined and found nothing in. Real numbers only because the resolver
+   *  records `session_analysed` for the zero case too -- without that, a clean
+   *  session and an unexamined one are the same absence of rows. */
+  sessions_analysed: number;
+  sessions_clean: number;
 }
 
 export interface Surface {

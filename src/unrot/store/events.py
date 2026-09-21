@@ -61,6 +61,19 @@ SPECS: dict[str, EventSpec] = {
         ("encounter_id", "concept_id", "source", "paraphrase"),
         requires_provenance=("detector_version",),
     ),
+    # -- coverage. The event that makes silence mean something. --------------
+    #
+    # Without this, a session the detector examined and found clean is
+    # byte-identical to one nobody ever looked at: no encounters either way. The
+    # surface then cannot tell "we looked and found nothing" -- which journey 3
+    # needs to read as a good result -- from "nothing ran". Recorded even when
+    # (especially when) `candidates_found` is zero: an empty result is the
+    # finding, not the absence of one.
+    "session_analysed": EventSpec(
+        "session_analysed", SYSTEM, "session",
+        ("session_id", "candidates_found"),
+        requires_provenance=("detector_version",),
+    ),
     # -- user judgments. Ground truth. Never replayed, never overwritten. -----
     "encounter_confirmed": EventSpec(
         "encounter_confirmed", USER, "encounter", ("encounter_id",)
@@ -177,7 +190,13 @@ def append(
 
 
 def _default_subject(spec: EventSpec, payload: dict) -> str | None:
-    for key in ("concept_id", "encounter_id", "material_id", "from_concept_id"):
+    for key in (
+        "concept_id",
+        "encounter_id",
+        "material_id",
+        "session_id",
+        "from_concept_id",
+    ):
         if key in payload:
             return payload[key]
     return None

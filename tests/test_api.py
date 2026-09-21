@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 from unrot.api.app import create_app
 from unrot.capture import paths
 from unrot.capture.ingest import SCHEMA_PATH as RAW_SCHEMA
+from unrot.resolver import record_analysis
 from unrot.store import append, compile_state, fixtures
 from unrot.store.__main__ import open_store
 
@@ -125,7 +126,7 @@ def test_too_little_history_is_admitted_rather_than_filled_in(client, home):
     conn = open_store(home)
     encounter = seed_encounter(conn)
     append(conn, "encounter_dismissed", {"encounter_id": encounter})
-    compile_state(conn)
+    record_analysis(conn, "s0", candidates_found=1, detector_version="detector/test")
     conn.close()
 
     assert client.get("/api/surface").json()["state"] == "cold_start"
@@ -136,14 +137,53 @@ def test_clean_is_distinct_from_both_empty_and_broken(client, home):
     conn = open_store(home)
     encounter = seed_encounter(conn)
     append(conn, "encounter_dismissed", {"encounter_id": encounter})
-    compile_state(conn)
+    for index in range(9):
+        record_analysis(
+            conn,
+            f"s{index}",
+            candidates_found=1 if index == 0 else 0,
+            detector_version="detector/test",
+            recompile=index == 8,
+        )
     conn.close()
 
     body = client.get("/api/surface").json()
     assert body["state"] == "clean"
     assert body["counts"]["open"] == 0
-    # Silence is a result, so it comes with an explanation of itself.
-    assert body["detail"]
+    # Silence is a result, so it says what it is a result OF -- how many
+    # sessions were examined, and how many of those were genuinely clean.
+    assert body["capture"]["sessions_analysed"] == 9
+    assert body["capture"]["sessions_clean"] == 8
+    assert "examined" in body["detail"]
+
+
+def test_analysed_and_clean_is_not_the_same_as_never_looked_at(client, home):
+    """The distinction PR-21's `session_analysed` event exists to make.
+
+    Both stores below contain zero encounters. Before coverage was recorded they
+    were indistinguishable, so the surface could not tell the user whether its
+    silence meant anything -- and journey 3 is entirely about silence meaning
+    something.
+    """
+    make_raw(home, 9)
+
+    never_looked = client.get("/api/surface").json()
+    assert never_looked["state"] == "not_analysed"
+
+    conn = open_store(home)
+    for index in range(9):
+        record_analysis(
+            conn,
+            f"s{index}",
+            candidates_found=0,
+            detector_version="detector/test",
+            recompile=index == 8,
+        )
+    conn.close()
+
+    looked = client.get("/api/surface").json()
+    assert looked["state"] == "clean"
+    assert looked["capture"]["sessions_clean"] == 9
 
 
 def test_failure_is_never_reported_as_an_empty_list(client, home, monkeypatch):
@@ -206,6 +246,43 @@ def test_confirming_does_not_close_the_gap(client, home):
     assert body["concept"]["bucket"] == "learning"
     assert body["concept"]["state"] == "gap"
     assert body["counts"] == {"open": 0, "learning": 1, "closed": 0}
+
+
+def test_one_answer_settles_a_concept_met_several_times(client, home):
+    """A concept met in three sessions must not ask the same question three times.
+
+    Caught by running the real chain: `idempotency` had two encounters, and
+    confirming one left the card sitting in "Waiting on you" looking untouched --
+    a button that appeared to do nothing. The question is about the concept, so
+    one answer is enough.
+    """
+    make_raw(home, 5)
+    conn = open_store(home)
+    append(conn, "concept_created", {"concept_id": "c-x", "canonical_name": "idempotency"})
+    for index, pointer in enumerate([("s0", 1, 2), ("s1", 8, 9)]):
+        append(
+            conn,
+            "encounter_recorded",
+            {
+                "encounter_id": f"e-{index}",
+                "concept_id": "c-x",
+                "source": "transcript",
+                "paraphrase": "Stands alone.",
+                "pointer": dict(zip(("session_id", "line_start", "line_end"), pointer)),
+            },
+            provenance={"detector_version": "detector/test"},
+        )
+    compile_state(conn)
+    conn.close()
+
+    assert client.get("/api/surface").json()["counts"]["open"] == 1
+
+    body = client.post("/api/encounters/e-0/confirm").json()
+    assert body["counts"] == {"open": 0, "learning": 1, "closed": 0}
+    # The other encounter is still honestly unjudged -- we never asked about it.
+    moved = body["concept"]
+    assert moved["encounter_count"] == 2
+    assert moved["unjudged"] == 1
 
 
 def test_dismissing_closes_it(client, home):

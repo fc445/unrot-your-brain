@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS events (
     recorded_at  TEXT NOT NULL,   -- ISO-8601 UTC, when we wrote it down
     origin       TEXT NOT NULL,   -- which machine produced it (S7)
 
-    subject_type TEXT,            -- 'concept' | 'encounter' | 'material'
+    subject_type TEXT,            -- 'concept' | 'encounter' | 'material' | 'session'
     subject_id   TEXT,
 
     -- S16 lives here. A paraphrase (or any derived statement) can be superseded
@@ -144,6 +144,16 @@ CREATE TABLE IF NOT EXISTS compiled_explanations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_expl_concept ON compiled_explanations (concept_id);
+
+-- Which sessions have actually been looked at, and by which detector. Derived
+-- like everything else here, and the thing that lets an empty gap list mean
+-- "we examined 23 sessions and 19 were clean" rather than merely "no rows".
+CREATE TABLE IF NOT EXISTS compiled_sessions (
+    session_id       TEXT PRIMARY KEY,
+    analysed_at      TEXT NOT NULL,
+    detector_version TEXT,
+    candidates_found INTEGER NOT NULL DEFAULT 0
+);
 
 CREATE TABLE IF NOT EXISTS compile_meta (
     id               INTEGER PRIMARY KEY CHECK (id = 1),

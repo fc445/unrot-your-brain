@@ -77,11 +77,18 @@ def bucket_for(state: str, encounters: list[Encounter]) -> str | None:
         return None
     if state == "known":
         return "closed"
-    if any(e.judgment is None for e in encounters):
-        return "open"
-    # Judged, still a gap: the user said they did not know it. That is the start
-    # of learning it, not the end of dealing with it.
-    return "learning"
+    # One answer settles the concept, not one encounter. The question being
+    # asked is "do you know idempotency?", and a concept met in three sessions
+    # should not ask it three times -- which is also what stops a confirm on a
+    # repeat concept looking like a button that did nothing.
+    #
+    # The other encounters stay unjudged in the data, honestly: we did not ask
+    # about them. Re-asking at a distance is journey 8's spaced-retrieval loop,
+    # which is deliberately not v1, and it needs to be driven by elapsed time
+    # rather than by how many times a card happens to be on screen.
+    if any(e.judgment is not None for e in encounters):
+        return "learning"
+    return "open"
 
 
 def _sessions_on_disk(root) -> set[str]:
@@ -149,12 +156,12 @@ class Capture:
     sessions: int
     human_turns: int
     last_activity: str | None
-    #: Sessions that have produced at least one encounter. Deliberately NOT
-    #: called "analysed": nothing records that the detector ran over a session
-    #: and found nothing, so the difference between a clean session and one
-    #: never looked at is currently invisible. PR-21 should append a
-    #: `session_analysed` event and this becomes a real number.
-    sessions_with_flags: int
+    #: Sessions the detector has actually examined, and how many of those it
+    #: examined and found nothing in. Real numbers since PR-21: the resolver
+    #: appends `session_analysed` even when the detector emitted nothing, which
+    #: is what lets silence here mean "we looked" rather than "no rows".
+    sessions_analysed: int
+    sessions_clean: int
 
 
 @dataclass
@@ -170,18 +177,21 @@ class Surface:
 
 
 def capture_stats(raw_conn: sqlite3.Connection | None, conn: sqlite3.Connection) -> Capture:
-    flagged = conn.execute(
-        "SELECT count(DISTINCT session_id) FROM compiled_encounters"
-        " WHERE session_id IS NOT NULL"
-    ).fetchone()[0]
+    coverage = conn.execute(
+        "SELECT count(*) AS analysed,"
+        "       sum(CASE WHEN candidates_found = 0 THEN 1 ELSE 0 END) AS clean"
+        "  FROM compiled_sessions"
+    ).fetchone()
+    analysed = coverage["analysed"] or 0
+    clean = coverage["clean"] or 0
     if raw_conn is None:
-        return Capture(0, 0, None, flagged)
+        return Capture(0, 0, None, analysed, clean)
     row = raw_conn.execute("SELECT count(*) AS n FROM raw_sessions").fetchone()
     turns = raw_conn.execute(
         "SELECT count(*) AS n, max(occurred_at) AS last FROM raw_turns"
         " WHERE role = 'user' AND is_meta = 0 AND is_sidechain = 0"
     ).fetchone()
-    return Capture(row["n"], turns["n"], turns["last"], flagged)
+    return Capture(row["n"], turns["n"], turns["last"], analysed, clean)
 
 
 #: Below this, a quiet list is more likely to mean "we have barely looked" than
@@ -210,7 +220,10 @@ def surface(
     stats = capture_stats(raw_conn, conn)
     counts = {bucket: sum(1 for c in found if c.bucket == bucket) for bucket in BUCKETS}
     seeded = fixtures_module.count(conn)
-    events = conn.execute("SELECT count(*) FROM events").fetchone()[0]
+    # Fixtures stand in for a detector run that never happened, so they count as
+    # coverage for the purpose of not telling a seeded store it has analysed
+    # nothing. Real coverage is `sessions_analysed`.
+    events = stats.sessions_analysed or seeded
 
     if stats.sessions == 0:
         state, headline, detail = (
@@ -224,7 +237,8 @@ def surface(
             "not_analysed",
             f"{stats.sessions} sessions captured, none analysed",
             "Transcripts are on disk but nothing has looked at them yet."
-            " This is not a clean bill of health -- it is an empty one.",
+            " This is not a clean bill of health -- it is an empty one."
+            " Run the resolver to detect and file gaps.",
         )
     elif counts["open"]:
         state, headline, detail = (
@@ -233,19 +247,23 @@ def surface(
             "Each of these was leaned on in a session and waved through."
             " Say whether you actually knew it.",
         )
-    elif stats.sessions < COLD_START_SESSIONS:
+    elif stats.sessions_analysed < COLD_START_SESSIONS:
         state, headline, detail = (
             "cold_start",
             "Not enough history yet",
-            f"Only {stats.sessions} session(s) captured. Too little to say much"
-            " either way -- come back after a few more.",
+            f"Only {stats.sessions_analysed} session(s) analysed so far. Too little"
+            " to say much either way -- come back after a few more.",
         )
     else:
+        # Now sayable, and only because `session_analysed` is recorded for the
+        # zero case too. Before that this could only ever claim the weaker
+        # "nothing is waiting", which is also true of a detector that never ran.
         state, headline, detail = (
             "clean",
             "Nothing waiting on you",
-            "Everything found so far has been dealt with."
-            " Silence here means we looked, not that nothing ran.",
+            f"{stats.sessions_analysed} session(s) examined, {stats.sessions_clean}"
+            " of them with nothing worth flagging. Everything else found has been"
+            " dealt with. Silence here means we looked.",
         )
 
     return Surface(

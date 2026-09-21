@@ -28,6 +28,7 @@ _COMPILED_TABLES = (
     "compiled_material",
     "compiled_material_concepts",
     "compiled_explanations",
+    "compiled_sessions",
 )
 
 
@@ -37,6 +38,7 @@ class CompileResult:
     compiled_through: str | None
     concepts: int
     encounters: int
+    sessions_analysed: int = 0
 
 
 @dataclass
@@ -114,6 +116,7 @@ def compile_state(conn: sqlite3.Connection) -> CompileResult:
     explanations: dict[str, dict] = {}
     material: dict[str, dict] = {}
     material_concepts: set[tuple[str, str]] = set()
+    sessions: dict[str, dict] = {}
 
     # Events that REFER to something rather than create it are collected here
     # and applied after the pass, keyed by the id they name.
@@ -212,6 +215,17 @@ def compile_state(conn: sqlite3.Connection) -> CompileResult:
                 "graded_at": row["occurred_at"],
             }
 
+        elif etype == "session_analysed":
+            # Last run wins: re-analysing a session with a better detector
+            # replaces what the previous one concluded about it, rather than
+            # accumulating one row per pass.
+            sessions[payload["session_id"]] = {
+                "session_id": payload["session_id"],
+                "analysed_at": row["occurred_at"],
+                "detector_version": provenance.get("detector_version"),
+                "candidates_found": int(payload.get("candidates_found") or 0),
+            }
+
         elif etype == "material_generated":
             mid = payload["material_id"]
             material[mid] = {
@@ -245,7 +259,10 @@ def compile_state(conn: sqlite3.Connection) -> CompileResult:
         if target is not None:
             target["delivered_at"] = delivered_at
 
-    _write(conn, concepts, encounters, explanations, material, material_concepts, merges)
+    _write(
+        conn, concepts, encounters, explanations, material, material_concepts,
+        sessions, merges,
+    )
 
     through = rows[-1]["event_id"] if rows else None
     conn.execute(
@@ -256,10 +273,23 @@ def compile_state(conn: sqlite3.Connection) -> CompileResult:
         (through, datetime.now(timezone.utc).isoformat(timespec="milliseconds"), len(rows)),
     )
     conn.commit()
-    return CompileResult(len(rows), through, len(concepts), len(encounters))
+    return CompileResult(
+        len(rows), through, len(concepts), len(encounters), len(sessions)
+    )
 
 
-def _write(conn, concepts, encounters, explanations, material, material_concepts, merges):
+def _write(
+    conn, concepts, encounters, explanations, material, material_concepts,
+    sessions, merges,
+):
+    for record in sessions.values():
+        conn.execute(
+            "INSERT INTO compiled_sessions (session_id, analysed_at, detector_version,"
+            " candidates_found)"
+            " VALUES (:session_id, :analysed_at, :detector_version, :candidates_found)",
+            record,
+        )
+
     for record in encounters.values():
         conn.execute(
             "INSERT INTO compiled_encounters (encounter_id, concept_id, source,"

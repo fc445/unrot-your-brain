@@ -76,7 +76,12 @@ export function GapCard({ concept, busy, onJudge }: Props) {
       </div>
 
       <div className="actions">
-        {pending?.judgment === null && (
+        {/* Only while the concept is still asking. A concept met several times
+            keeps unjudged encounters after you answer -- we never asked about
+            those -- but it has had its answer, so it must stop presenting the
+            question. Gating on `pending` alone left a settled card still
+            offering a verdict. */}
+        {concept.bucket === "open" && pending?.judgment === null && (
           <>
             {/* Confirming does NOT close the gap. It means "I genuinely did not
                 know this", which is where learning it starts. Dismissing is the
