@@ -139,6 +139,16 @@ CREATE TABLE IF NOT EXISTS compiled_explanations (
     submitted_at   TEXT NOT NULL,
     rubric         TEXT,
     level          TEXT,
+    -- What the grader said about the answer, shown back to the person who
+    -- wrote it. Derived and disposable like the level beside it.
+    reasoning      TEXT,
+    -- The full distribution across levels, and how peaked it was. Kept because
+    -- the rubric's only load-bearing boundary is listed -> causal, and a
+    -- probability says how close an answer came to it where a label does not.
+    -- Moving that threshold later is then a re-reading of the log rather than a
+    -- re-grade: same argument as storing raw text, one level further in.
+    probabilities  TEXT,
+    confidence     REAL,
     grader_version TEXT,
     graded_at      TEXT
 );

@@ -497,3 +497,137 @@ button {
   .card { padding: 16px; }
   .section-head p { display: none; }
 }
+
+/* ------------------------------------------------------- comprehension check -- */
+/* While this is open the paraphrase is off screen, because the paraphrase is
+ * usually a definition of the very term being asked about. Leaving it up would
+ * turn the check into a reading exercise. */
+
+.check {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-sunk);
+}
+
+.check-question {
+  margin: 0 0 12px;
+  max-width: 60ch;
+  font-size: 15.5px;
+  font-weight: 560;
+  color: var(--ink);
+}
+
+.check-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 14.5px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.check-input:focus {
+  outline: 2px solid color-mix(in srgb, var(--learning) 50%, transparent);
+  outline-offset: 1px;
+}
+
+.check-input::placeholder {
+  color: var(--ink-faint);
+}
+
+.check .actions {
+  margin-top: 10px;
+}
+
+.check-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.check-result p {
+  flex: 1 1 22ch;
+  margin: 0;
+  max-width: 60ch;
+  color: var(--ink-soft);
+}
+
+.check-note {
+  margin: 10px 0 0;
+  max-width: 60ch;
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+
+.check-note code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* Your own words, shown back. Quoted rather than restated, because the wording
+ * is the thing a later attempt gets compared against. */
+.check-answer {
+  margin: 12px 0 0;
+  padding: 8px 0 8px 12px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-style: italic;
+}
+
+/* The grade as a distribution rather than a verdict. Reading "62% a list, 33%
+ * joined up" tells you you were close; reading "a list" does not. */
+
+.levels {
+  margin-top: 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.level {
+  display: grid;
+  grid-template-columns: 8ch 1fr 4ch;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.level[data-picked="true"] {
+  color: var(--ink);
+  font-weight: 560;
+}
+
+.level-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.level-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+
+.level[data-picked="true"] .level-bar span {
+  background: var(--open);
+}
+
+.level[data-picked="true"]:last-child .level-bar span {
+  background: var(--closed);
+}
+
+.level-pct {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}

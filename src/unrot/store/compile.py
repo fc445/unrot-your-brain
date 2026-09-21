@@ -203,14 +203,24 @@ def compile_state(conn: sqlite3.Connection) -> CompileResult:
                 "submitted_at": row["occurred_at"],
                 "rubric": None,
                 "level": None,
+                "reasoning": None,
+                "probabilities": None,
+                "confidence": None,
                 "grader_version": None,
                 "graded_at": None,
             }
 
         elif etype == "explanation_graded":
+            # Last grade wins: re-grading under a new rubric supersedes the
+            # previous answer about the same text rather than accumulating.
             grades[payload["explanation_id"]] = {
                 "rubric": payload["rubric"],
                 "level": payload["level"],
+                "reasoning": payload.get("reasoning"),
+                "probabilities": json.dumps(payload["probabilities"])
+                if payload.get("probabilities")
+                else None,
+                "confidence": payload.get("confidence"),
                 "grader_version": provenance.get("grader_version"),
                 "graded_at": row["occurred_at"],
             }
@@ -306,10 +316,11 @@ def _write(
         conn.execute(
             "INSERT INTO compiled_explanations (explanation_id, concept_id,"
             " encounter_id, raw_text, prompt_text, prompt_version, submitted_at,"
-            " rubric, level, grader_version, graded_at)"
+            " rubric, level, reasoning, probabilities, confidence,"
+            " grader_version, graded_at)"
             " VALUES (:explanation_id, :concept_id, :encounter_id, :raw_text,"
             " :prompt_text, :prompt_version, :submitted_at, :rubric, :level,"
-            " :grader_version, :graded_at)",
+            " :reasoning, :probabilities, :confidence, :grader_version, :graded_at)",
             record,
         )
 

@@ -35,6 +35,47 @@ export interface Encounter {
   resolvable: boolean;
 }
 
+/** SOLO, collapsed to three. The only boundary that carries weight is
+ *  listed -> causal: that is where "I can recite what the model told me"
+ *  separates from "I understood it". */
+export type Level = "isolated" | "listed" | "causal";
+
+export interface Explanation {
+  explanation_id: string;
+  raw_text: string;
+  /** The question this answer was given to, stored verbatim. Shown back with
+   *  the answer, because the wording is expected to change and the same words
+   *  mean different things under different questions. */
+  prompt_text: string;
+  prompt_version: string;
+  submitted_at: string;
+  /** null while ungraded, which is a normal state: the answer is stored before
+   *  grading is attempted, so a failed grader never costs what you wrote. */
+  level: Level | null;
+  reasoning: string | null;
+  /** Only present for a classifier grade. Absent means "not measured", not
+   *  "flat", so it is never filled in with zeroes. */
+  probabilities: Record<Level, number> | null;
+  confidence: number | null;
+  grader_version: string | null;
+}
+
+export interface Check {
+  concept_id: string;
+  name: string;
+  prompt_text: string;
+  prompt_version: string;
+}
+
+export interface Graded {
+  explanation: Explanation;
+  concept: Concept | null;
+  counts: Record<string, number>;
+  /** False when the answer was stored but no real grader ran. You must not be
+   *  told you failed a check that never happened. */
+  graded: boolean;
+}
+
 export interface Concept {
   concept_id: string;
   name: string;
@@ -46,8 +87,9 @@ export interface Concept {
   unjudged: number;
   first_seen_at: string | null;
   last_seen_at: string | null;
-  latest_level: string | null;
+  latest_level: Level | null;
   encounters: Encounter[];
+  explanations: Explanation[];
 }
 
 export interface Capture {

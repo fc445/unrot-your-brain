@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from ..env import load_env
 from .app import UI_DIST
 
 
@@ -19,6 +20,13 @@ def main(argv=None) -> int:
     parser.add_argument("--port", type=int, default=8000, help="default 8000")
     parser.add_argument("--reload", action="store_true", help="reload on code changes")
     args = parser.parse_args(argv)
+
+    # Before uvicorn starts, so the grader sees the key. Without this the
+    # server falls back to keyword grading for every answer and reports it as
+    # ungraded-by-model -- true, but for a reason nobody would guess.
+    loaded = load_env()
+    if loaded:
+        print(f"config: {loaded[0]}")
 
     try:
         import uvicorn

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, getSurface, judge } from "./api";
 import { EmptyState } from "./components/EmptyState";
 import { GapCard } from "./components/GapCard";
-import type { Bucket, Surface } from "./types";
+import type { Bucket, Graded, Surface } from "./types";
 
 /** Section copy. The order matters: what needs you, then what you are working
  *  on, then what is behind you. Ending on "closed" is the whole shame-spiral
@@ -29,6 +29,10 @@ export default function App() {
   const [surface, setSurface] = useState<Surface | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // The result of the check that was just answered, held here rather than in the
+  // card because a `causal` grade moves the card to a different section and
+  // destroys it on the way.
+  const [justGraded, setJustGraded] = useState<Graded | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -157,6 +161,16 @@ export default function App() {
                   concept={concept}
                   busy={busy !== null && concept.encounters.some((e) => e.encounter_id === busy)}
                   onJudge={onJudge}
+                  onGraded={(result) => {
+                    setJustGraded(result);
+                    void load();
+                  }}
+                  justGraded={
+                    justGraded?.concept?.concept_id === concept.concept_id
+                      ? justGraded
+                      : undefined
+                  }
+                  onDismissResult={() => setJustGraded(null)}
                 />
               ))}
           </section>

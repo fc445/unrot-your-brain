@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { Check } from "./Check";
+import { CheckResult } from "./CheckResult";
 import { Moment } from "./Moment";
-import type { Concept, Encounter } from "../types";
+import type { Concept, Encounter, Graded, Level } from "../types";
 
 function when(iso: string | null): string {
   if (!iso) return "unknown";
@@ -13,14 +15,35 @@ function when(iso: string | null): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+const LEVEL_LABEL: Record<Level, string> = {
+  isolated: "one fact",
+  listed: "a list",
+  causal: "joined up",
+};
+
 interface Props {
   concept: Concept;
   busy: boolean;
   onJudge: (encounterId: string, verdict: "confirm" | "dismiss") => void;
+  onGraded: (result: Graded) => void;
+  /** Held above this card on purpose. A `causal` grade moves the concept into
+   *  another section, so React destroys this card and builds a new one -- state
+   *  kept here would go with it, and the grader's reasoning is the only
+   *  feedback the check produces. */
+  justGraded?: Graded;
+  onDismissResult: () => void;
 }
 
-export function GapCard({ concept, busy, onJudge }: Props) {
+export function GapCard({
+  concept,
+  busy,
+  onJudge,
+  onGraded,
+  justGraded,
+  onDismissResult,
+}: Props) {
   const [open, setOpen] = useState(false);
+  const [checking, setChecking] = useState(false);
 
   // The most recent unjudged encounter is the one a verdict applies to. A
   // concept can hold several -- that repetition is the point of splitting
@@ -35,6 +58,17 @@ export function GapCard({ concept, busy, onJudge }: Props) {
   // would otherwise offer no moment at all -- hiding a real transcript the user
   // could have looked at.
   const withMoment = concept.encounters.find((e) => e.resolvable);
+  const latest = concept.explanations[concept.explanations.length - 1];
+
+  // While the check is open, everything that could contain the answer comes off
+  // screen. The paraphrase is usually a definition of the term -- "Git rebase is
+  // the operation that takes commits from one branch and reapplies them onto
+  // another base" -- so leaving it up would turn an explanation into a reading
+  // exercise, and the check would measure nothing at all.
+  // ...until it has been answered. Once the grade is back there is nothing left
+  // to give away, and the rest of the card has to come back so the result can be
+  // read beside the term it was about.
+  const revealing = !checking;
 
   return (
     <article className="card" data-bucket={concept.bucket} data-busy={busy}>
@@ -73,9 +107,26 @@ export function GapCard({ concept, busy, onJudge }: Props) {
         )}
       </header>
 
-      {shown?.paraphrase && <p className="paraphrase">{shown.paraphrase}</p>}
+      {revealing && shown?.paraphrase && (
+        <p className="paraphrase">{shown.paraphrase}</p>
+      )}
 
-      <div className="card-meta">
+      {checking && !justGraded && (
+        <Check
+          conceptId={concept.concept_id}
+          onGraded={(result) => {
+            setChecking(false);
+            onGraded(result);
+          }}
+          onCancel={() => setChecking(false)}
+        />
+      )}
+
+      {justGraded && (
+        <CheckResult result={justGraded} onDismiss={onDismissResult} />
+      )}
+
+      {revealing && <div className="card-meta">
         <span>{when(shown?.occurred_at ?? concept.last_seen_at)}</span>
         {shown?.session_id && shown.source !== "manual" && (
           <span>
@@ -83,9 +134,14 @@ export function GapCard({ concept, busy, onJudge }: Props) {
           </span>
         )}
         {concept.aliases.length > 0 && <span>also: {concept.aliases.join(", ")}</span>}
-      </div>
+        {latest?.level && (
+          <span>
+            you explained it: <b>{LEVEL_LABEL[latest.level]}</b>
+          </span>
+        )}
+      </div>}
 
-      <div className="actions">
+      {revealing && <div className="actions">
         {/* Only while the concept is still asking. A concept met several times
             keeps unjudged encounters after you answer -- we never asked about
             those -- but it has had its answer, so it must stop presenting the
@@ -114,6 +170,25 @@ export function GapCard({ concept, busy, onJudge }: Props) {
             </button>
           </>
         )}
+        {/* Offered wherever the concept is still a gap, including after a
+            confirm. Self-report is what this replaces -- people confirm
+            familiarity with things they do not know -- so explaining it is the
+            path that can actually close a gap, and dismissing is only for a
+            flag that was simply wrong. */}
+        {concept.state === "gap" && (
+          <button
+            className="btn"
+            data-variant="confirm"
+            disabled={busy}
+            onClick={() => {
+              setOpen(false);
+              onDismissResult();
+              setChecking(true);
+            }}
+          >
+            {latest ? "Try explaining it again" : "Explain it"}
+          </button>
+        )}
         {withMoment && (
           <button
             className="btn"
@@ -124,9 +199,11 @@ export function GapCard({ concept, busy, onJudge }: Props) {
             {open ? "Hide the moment" : "Show the moment"}
           </button>
         )}
-      </div>
+      </div>}
 
-      {open && withMoment && <Moment encounterId={withMoment.encounter_id} />}
+      {revealing && open && withMoment && (
+        <Moment encounterId={withMoment.encounter_id} />
+      )}
     </article>
   );
 }

@@ -1,4 +1,4 @@
-import type { Judgment, Moment, Surface } from "./types";
+import type { Check, Graded, Judgment, Moment, Surface } from "./types";
 
 /** Thrown for anything that is not a successful JSON response.
  *
@@ -49,3 +49,13 @@ export const judge = (encounterId: string, verdict: "confirm" | "dismiss") =>
     `/api/encounters/${encodeURIComponent(encounterId)}/${verdict}`,
     { method: "POST" },
   );
+
+export const getCheck = (conceptId: string) =>
+  call<Check>(`/api/concepts/${encodeURIComponent(conceptId)}/check`);
+
+export const explain = (conceptId: string, text: string) =>
+  call<Graded>(`/api/concepts/${encodeURIComponent(conceptId)}/explanation`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });

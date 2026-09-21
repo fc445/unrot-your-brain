@@ -19,6 +19,7 @@ Two things it is careful about:
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -35,8 +36,11 @@ from ..store.__main__ import open_raw, open_store
 from . import read
 from .schemas import (
     CaptureOut,
+    CheckOut,
     ConceptOut,
     EncounterOut,
+    ExplanationOut,
+    GradedOut,
     JudgmentOut,
     MomentOut,
     MomentTurn,
@@ -90,9 +94,33 @@ def _encounter_out(encounter: read.Encounter) -> EncounterOut:
 def _concept_out(concept: read.Concept) -> ConceptOut:
     data = vars(concept) | {
         "encounters": [_encounter_out(e) for e in concept.encounters],
+        "explanations": [ExplanationOut(**vars(x)) for x in concept.explanations],
         "unjudged": concept.unjudged,
     }
     return ConceptOut(**data)
+
+
+def _build_grader():
+    """The grading callable, or the offline fallback, and which one it is.
+
+    Never raises. A missing key must not stop an explanation being stored --
+    what the user wrote is the irreplaceable half, and grading is the part that
+    can be redone later from it.
+    """
+    from ..grader import DEFAULT_JEV_MODEL, build_jev_grader, keyword_grader
+    from ..model import ModelConfig
+
+    config = ModelConfig.from_env()
+    if not config.api_key:
+        return keyword_grader, "keyword", False
+    try:
+        # A classifier rather than a reasoning model: this question is "pick one
+        # of three and say how sure you are", which is the shape it is built
+        # for. It also returns the distribution, which is what makes the
+        # listed/causal threshold movable later without re-grading anything.
+        return build_jev_grader(config), DEFAULT_JEV_MODEL.replace("/", "-"), True
+    except Exception:  # pragma: no cover - network/config problems at build time
+        return keyword_grader, "keyword", False
 
 
 def create_app() -> FastAPI:
@@ -168,6 +196,94 @@ def create_app() -> FastAPI:
             concept=_concept_out(moved) if moved else None,
             surface=state,
             counts={b: sum(1 for c in found if c.bucket == b) for b in read.BUCKETS},
+        )
+
+    @app.get("/api/concepts/{concept_id}/check", response_model=CheckOut)
+    def check(concept_id: str) -> CheckOut:
+        """The question to ask, worded as it will be stored.
+
+        Handed to the frontend rather than composed there, so the words on
+        screen and the words recorded against the answer cannot drift apart --
+        which would silently break the one thing that makes re-grading valid.
+        """
+        from ..grader import check_version, question_for
+
+        with stores() as (conn, _raw):
+            row = conn.execute(
+                "SELECT canonical_name FROM compiled_concepts WHERE concept_id = ?",
+                (concept_id,),
+            ).fetchone()
+            if row is None:
+                raise HTTPException(404, f"no concept {concept_id!r}")
+            asked = question_for(conn, concept_id)
+        return CheckOut(
+            concept_id=concept_id,
+            name=row["canonical_name"],
+            prompt_text=asked,
+            prompt_version=check_version(),
+        )
+
+    @app.post("/api/concepts/{concept_id}/explanation", response_model=GradedOut)
+    def explain(concept_id: str, body: dict) -> GradedOut:
+        """Store what the user wrote, then grade it. In that order, always.
+
+        The explanation is the half that cannot be reconstructed -- they typed it
+        once and will not type it again. Grading is a network call that can fail.
+        So the submission is committed first and grading is attempted after; if
+        it fails, the answer survives ungraded and can be graded later from
+        exactly the same raw text.
+        """
+        from ..grader import grade as grade_one
+        from ..grader import submit
+
+        text = str((body or {}).get("text") or "").strip()
+        if not text:
+            raise HTTPException(400, "an empty explanation is not an answer")
+
+        grade_fn, model_label, live = _build_grader()
+
+        with stores() as (conn, _raw):
+            try:
+                explanation_id = submit(conn, concept_id, text)
+            except ValueError as exc:
+                raise HTTPException(404, str(exc)) from exc
+
+            graded = True
+            try:
+                grade_one(conn, explanation_id, grade_fn=grade_fn, model_label=model_label)
+            except Exception:
+                # The answer is safely stored; the level is not. Reported as
+                # ungraded rather than as a failure, because the user has not
+                # lost anything and must not be told they failed a check that
+                # never ran.
+                graded = False
+                compile_state(conn)
+
+            found = read.concepts(conn, _home())
+            row = conn.execute(
+                "SELECT * FROM compiled_explanations WHERE explanation_id = ?",
+                (explanation_id,),
+            ).fetchone()
+
+        concept = next((c for c in found if c.concept_id == concept_id), None)
+        return GradedOut(
+            explanation=ExplanationOut(
+                explanation_id=row["explanation_id"],
+                raw_text=row["raw_text"],
+                prompt_text=row["prompt_text"],
+                prompt_version=row["prompt_version"],
+                submitted_at=row["submitted_at"],
+                level=row["level"],
+                reasoning=row["reasoning"],
+                probabilities=json.loads(row["probabilities"])
+                if row["probabilities"]
+                else None,
+                confidence=row["confidence"],
+                grader_version=row["grader_version"],
+            ),
+            concept=_concept_out(concept) if concept else None,
+            counts={b: sum(1 for c in found if c.bucket == b) for b in read.BUCKETS},
+            graded=graded and live,
         )
 
     @app.get("/api/encounters/{encounter_id}/moment", response_model=MomentOut)

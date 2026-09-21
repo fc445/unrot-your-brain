@@ -28,6 +28,28 @@ class EncounterOut(BaseModel):
     resolvable: bool = False
 
 
+class ExplanationOut(BaseModel):
+    explanation_id: str
+    raw_text: str
+    #: The question this answer was given to, stored verbatim. Shown back with
+    #: the answer because the same words mean different things under different
+    #: questions -- and the wording is expected to change over time.
+    prompt_text: str
+    prompt_version: str
+    submitted_at: str
+    #: 'isolated' | 'listed' | 'causal', or None while ungraded. Ungraded is a
+    #: normal state: the answer is stored before any grading is attempted, so a
+    #: failed or unavailable grader never costs the user what they wrote.
+    level: str | None = None
+    reasoning: str | None = None
+    #: Only a classifier supplies these, and an absent distribution means "not
+    #: measured" rather than "flat" -- so it stays absent rather than being
+    #: filled in with zeroes.
+    probabilities: dict[str, float] | None = None
+    confidence: float | None = None
+    grader_version: str | None = None
+
+
 class ConceptOut(BaseModel):
     concept_id: str
     name: str
@@ -41,6 +63,7 @@ class ConceptOut(BaseModel):
     last_seen_at: str | None = None
     latest_level: str | None = None
     encounters: list[EncounterOut] = Field(default_factory=list)
+    explanations: list[ExplanationOut] = Field(default_factory=list)
 
 
 class CaptureOut(BaseModel):
@@ -92,3 +115,24 @@ class MomentOut(BaseModel):
     line_start: int | None = None
     line_end: int | None = None
     turns: list[MomentTurn] = Field(default_factory=list)
+
+
+class CheckOut(BaseModel):
+    """The question to put on screen."""
+
+    concept_id: str
+    name: str
+    prompt_text: str
+    prompt_version: str
+
+
+class GradedOut(BaseModel):
+    explanation: ExplanationOut
+    #: The concept after recompiling. A `causal` grade compiles the concept to
+    #: `known`, so this can arrive in a different bucket than it left.
+    concept: ConceptOut | None = None
+    counts: dict[str, int]
+    #: False when the answer was stored but no grader was available. The
+    #: distinction matters: the user must not be told they failed a check that
+    #: was never actually run.
+    graded: bool = True

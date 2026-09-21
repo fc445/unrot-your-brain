@@ -47,6 +47,29 @@ class Encounter:
 
 
 @dataclass
+class Explanation:
+    """One attempt at the check, with whatever the grader made of it.
+
+    Kept as a list on the concept rather than collapsed to the latest: journey 8
+    is about whether an answer given weeks later got better, and that comparison
+    needs both answers to still be there.
+    """
+
+    explanation_id: str
+    raw_text: str
+    prompt_text: str
+    prompt_version: str
+    submitted_at: str
+    level: str | None = None
+    reasoning: str | None = None
+    #: Present only for a classifier grade. How close the answer came to the
+    #: listed -> causal line, which is the only boundary the rubric turns on.
+    probabilities: dict | None = None
+    confidence: float | None = None
+    grader_version: str | None = None
+
+
+@dataclass
 class Concept:
     concept_id: str
     name: str
@@ -59,13 +82,18 @@ class Concept:
     last_seen_at: str | None
     latest_level: str | None
     encounters: list[Encounter] = field(default_factory=list)
+    explanations: list[Explanation] = field(default_factory=list)
 
     @property
     def unjudged(self) -> int:
         return sum(1 for e in self.encounters if e.judgment is None)
 
 
-def bucket_for(state: str, encounters: list[Encounter]) -> str | None:
+def bucket_for(
+    state: str,
+    encounters: list[Encounter],
+    explanations: list[Explanation] = (),
+) -> str | None:
     """Which section a concept renders in, or None to keep it off the surface.
 
     `referenced` returns None and that is the whole point of the state: a concept
@@ -87,6 +115,12 @@ def bucket_for(state: str, encounters: list[Encounter]) -> str | None:
     # which is deliberately not v1, and it needs to be driven by elapsed time
     # rather than by how many times a card happens to be on screen.
     if any(e.judgment is not None for e in encounters):
+        return "learning"
+    # Attempting the check is an answer to the question the card is asking, even
+    # when the answer did not reach `causal`. A card that kept demanding a
+    # verdict after you had just written an explanation for it would be asking
+    # you to say twice what you already said once.
+    if explanations:
         return "learning"
     return "open"
 
@@ -124,13 +158,35 @@ def concepts(conn: sqlite3.Connection, root=None) -> list[Concept]:
             )
         )
 
+    by_explained: dict[str, list[Explanation]] = {}
+    for row in conn.execute(
+        "SELECT * FROM compiled_explanations ORDER BY submitted_at"
+    ):
+        by_explained.setdefault(row["concept_id"], []).append(
+            Explanation(
+                explanation_id=row["explanation_id"],
+                raw_text=row["raw_text"],
+                prompt_text=row["prompt_text"],
+                prompt_version=row["prompt_version"],
+                submitted_at=row["submitted_at"],
+                level=row["level"],
+                reasoning=row["reasoning"],
+                probabilities=json.loads(row["probabilities"])
+                if row["probabilities"]
+                else None,
+                confidence=row["confidence"],
+                grader_version=row["grader_version"],
+            )
+        )
+
     out: list[Concept] = []
     for row in conn.execute(
         "SELECT * FROM compiled_concepts WHERE merged_into IS NULL"
         " ORDER BY COALESCE(last_seen_at, '') DESC, canonical_name"
     ):
         found = by_concept.get(row["concept_id"], [])
-        bucket = bucket_for(row["state"], found)
+        explained = by_explained.get(row["concept_id"], [])
+        bucket = bucket_for(row["state"], found, explained)
         if bucket is None:
             continue
         out.append(
@@ -146,6 +202,7 @@ def concepts(conn: sqlite3.Connection, root=None) -> list[Concept]:
                 last_seen_at=row["last_seen_at"],
                 latest_level=row["latest_level"],
                 encounters=found,
+                explanations=explained,
             )
         )
     return out

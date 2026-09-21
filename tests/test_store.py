@@ -497,3 +497,79 @@ def test_store_survives_reopening_and_reinitialising(tmp_path):
     assert row["judgment"] == "confirmed"
     assert row["encounter_id"] == encounter
     second.close()
+
+
+# ---------------------------------------------------------------------------
+# Compiled-schema drift
+# ---------------------------------------------------------------------------
+
+
+def test_an_added_compiled_column_reaches_a_store_that_already_existed(tmp_path):
+    """The bug class this guards against is invisible to every other test here.
+
+    `CREATE TABLE IF NOT EXISTS` skips a table that exists, so a column added to
+    a `compiled_*` table never appears in a store created before it. Tests build
+    fresh databases and pass; real stores fail at runtime on the first query
+    naming the column. Caught in the browser rather than the suite, which is
+    exactly the wrong order.
+    """
+    import sqlite3
+
+    from unrot.store import db
+
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    # A store from before `compiled_explanations.reasoning` existed, carrying an
+    # event that the fold has to be able to write into the new shape.
+    old.executescript(
+        "CREATE TABLE events (event_id TEXT PRIMARY KEY, event_type TEXT NOT NULL,"
+        " actor TEXT NOT NULL, occurred_at TEXT NOT NULL, recorded_at TEXT NOT NULL,"
+        " origin TEXT NOT NULL, subject_type TEXT, subject_id TEXT, supersedes TEXT,"
+        " provenance TEXT, payload TEXT NOT NULL);"
+        "CREATE TABLE compiled_explanations (explanation_id TEXT PRIMARY KEY,"
+        " concept_id TEXT NOT NULL, encounter_id TEXT, raw_text TEXT NOT NULL,"
+        " prompt_text TEXT NOT NULL, prompt_version TEXT NOT NULL,"
+        " submitted_at TEXT NOT NULL, rubric TEXT, level TEXT, grader_version TEXT,"
+        " graded_at TEXT);"
+    )
+    old.execute(
+        "INSERT INTO events VALUES ('01OLD', 'concept_created', 'system',"
+        " '2026-09-01', '2026-09-01', 'local', 'concept', 'c-x', NULL, NULL,"
+        " '{\"concept_id\": \"c-x\", \"canonical_name\": \"idempotency\"}')"
+    )
+    old.commit()
+    old.close()
+
+    conn = db.connect(path)
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(compiled_explanations)")
+    }
+    assert "reasoning" in columns
+
+    # And the rebuild refilled from the log rather than leaving it empty, so a
+    # reader cannot mistake a migrated store for an empty one.
+    names = [r["canonical_name"] for r in conn.execute("SELECT * FROM compiled_concepts")]
+    assert names == ["idempotency"]
+    assert conn.execute("SELECT count(*) FROM events").fetchone()[0] == 1
+    conn.close()
+
+
+def test_reopening_an_up_to_date_store_does_not_rebuild_it(tmp_path):
+    """The rebuild must be drift-triggered, not per-connection.
+
+    `connect()` runs on every API request; re-folding the whole log each time
+    would be silent, steadily growing waste.
+    """
+    from unrot.store import db
+
+    path = tmp_path / "current.db"
+    first = db.connect(path)
+    append(first, "concept_created", {"concept_id": "c-x", "canonical_name": "x"})
+    compile_state(first)
+    first.close()
+
+    second = db.connect(path)
+    assert second.execute("PRAGMA user_version").fetchone()[0] == db.COMPILED_SCHEMA
+    # Still there: nothing was dropped on the way in.
+    assert second.execute("SELECT count(*) FROM compiled_concepts").fetchone()[0] == 1
+    second.close()
