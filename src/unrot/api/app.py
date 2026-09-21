@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -30,6 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from .. import __version__
 from ..capture import paths
 from ..material import TEXTUAL
 from ..store import compile_state
@@ -42,6 +44,7 @@ from .schemas import (
     EncounterOut,
     ExplanationOut,
     GradedOut,
+    HealthOut,
     MadeOut,
     MaterialOut,
     JudgmentOut,
@@ -50,9 +53,22 @@ from .schemas import (
     SurfaceOut,
 )
 
-#: Where `npm run build` puts the frontend. Present in a built checkout, absent
-#: in development -- where Vite serves the app instead and proxies here.
-UI_DIST = Path(__file__).resolve().parents[3] / "ui" / "dist"
+def _ui_dist() -> Path:
+    """Where `npm run build` puts the frontend.
+
+    Present in a built checkout, absent in development -- where Vite serves the
+    app instead and proxies here -- and absent again inside the frozen sidecar,
+    which deliberately does not carry the web bundle: the Mac app is the surface
+    there. Walking up from `__file__` lands somewhere arbitrary inside a
+    PyInstaller bundle, so the frozen case is answered explicitly rather than
+    left to produce a path that happens not to exist for the wrong reason.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "ui" / "dist"
+    return Path(__file__).resolve().parents[3] / "ui" / "dist"
+
+
+UI_DIST = _ui_dist()
 
 #: Vite's dev server. Same-origin in production (the API serves the bundle), so
 #: this only matters while developing.
@@ -139,6 +155,29 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.get("/api/health", response_model=HealthOut)
+    def health() -> HealthOut:
+        """Cheap liveness, polled by the Mac app's supervisor.
+
+        Deliberately does everything `surface` does not: it opens the stores and
+        closes them, and touches nothing else. No `compile_state`, no grader
+        construction, no model config. Those are what make `/api/surface` cost
+        something, and a supervisor polling this every second or two must not be
+        paying that -- a health check that re-folds the log is a health check
+        that manufactures the load it exists to report.
+        """
+        from ..store.db import COMPILED_SCHEMA
+
+        root = paths.home(_home())
+        with stores() as (_conn, raw):
+            raw_open = raw is not None
+        return HealthOut(
+            version=__version__,
+            compiled_schema=COMPILED_SCHEMA,
+            raw_open=raw_open,
+            store_path=str(paths.store_db_path(root)),
+        )
 
     @app.get("/api/surface", response_model=SurfaceOut)
     def surface() -> SurfaceOut:

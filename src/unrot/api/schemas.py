@@ -11,6 +11,30 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class HealthOut(BaseModel):
+    """Is the core up, and is it the core this client expects?
+
+    Polled every couple of seconds by the Mac app's supervisor, so it must stay
+    cheap and side-effect-free -- in particular it must never recompile. A
+    health check that re-folds the log on every poll is a health check that
+    causes the load it is there to detect.
+
+    It reports rather than judges. `raw_open` being false is a normal, shippable
+    state (the portable layer alone), not a fault, and the client decides what
+    either fact means.
+    """
+
+    ok: bool = True
+    version: str
+    #: `store.db.COMPILED_SCHEMA`. A client built against a different number is
+    #: talking to a core whose compiled tables have a different shape.
+    compiled_schema: int
+    #: Whether `raw/raw.db` opened. False means the moment view cannot resolve
+    #: anything on this machine -- worth knowing before a user clicks one.
+    raw_open: bool
+    store_path: str
+
+
 class EncounterOut(BaseModel):
     encounter_id: str
     #: 'transcript' | 'manual'. The surface must treat these identically -- a gap

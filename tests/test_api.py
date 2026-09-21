@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,6 +27,13 @@ from unrot.capture.ingest import SCHEMA_PATH as RAW_SCHEMA
 from unrot.resolver import record_analysis
 from unrot.store import append, compile_state, fixtures
 from unrot.store.__main__ import open_store
+from unrot.store.db import COMPILED_SCHEMA
+
+#: `unrot.api.__init__` re-exports `app`, the FastAPI instance, which shadows
+#: the submodule of the same name -- so `from unrot.api import app` hands back
+#: the application, not the module, and monkeypatching anything inside it needs
+#: the module object itself.
+app_module = sys.modules["unrot.api.app"]
 
 
 @pytest.fixture
@@ -102,6 +110,44 @@ def seed_encounter(
 # is a v1 acceptance criterion, and it is only achievable if the server can name
 # which kind of empty it is -- a single blank list cannot say four things.
 # ---------------------------------------------------------------------------
+
+
+def test_health_answers_without_re_folding_the_log(client, home, monkeypatch):
+    """The supervisor polls this every second or two.
+
+    A health check that recompiles would spend real work on every poll, and the
+    load it generated would be indistinguishable from the load it exists to
+    report. So this asserts the absence of a call rather than the presence of a
+    field: the cheapness *is* the contract.
+    """
+    calls = []
+    real = app_module.compile_state
+    monkeypatch.setattr(
+        app_module, "compile_state", lambda *a, **k: (calls.append(1), real(*a, **k))[1]
+    )
+
+    body = client.get("/api/health").json()
+
+    assert calls == []
+    assert body["ok"] is True
+    assert body["compiled_schema"] == COMPILED_SCHEMA
+    assert body["store_path"] == str(paths.store_db_path(home))
+
+
+def test_health_reports_a_missing_raw_layer_without_calling_it_a_fault(client, home):
+    """`raw_open: false` is the portable layer alone, which is a shipped state.
+
+    It matters to the client -- the moment view cannot resolve anything without
+    it -- so it is reported. It is not an error, so `ok` stays true and the
+    client decides what to do about it.
+    """
+    before = client.get("/api/health").json()
+    assert before["raw_open"] is False
+    assert before["ok"] is True
+
+    make_raw(home, 1)
+
+    assert client.get("/api/health").json()["raw_open"] is True
 
 
 def test_nothing_captured_is_its_own_state(client):

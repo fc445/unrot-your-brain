@@ -28,9 +28,18 @@ packages = ["src/unrot"]
 
 [dependency-groups]
 dev = ["httpx>=0.27", "pytest>=8.0"]
+packaging = [
+    "pyinstaller>=6.22.3",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    # Spawns a real server in a subprocess. Kept in the default run because the
+    # transport is the thing being changed and TestClient never touches it --
+    # the marker is for `-m "not slow"` on a tight loop, not for CI to skip.
+    "slow: starts a subprocess and waits on it",
+]
 # src layout: put the package on the path directly rather than depending on an
 # editable install. Hatchling writes its .pth without a trailing newline, which
 # Python 3.14 does not process, so the editable install silently stops resolving.

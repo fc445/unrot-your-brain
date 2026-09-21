@@ -5,6 +5,8 @@ The layout exists to make S4's rule visible rather than merely documented:
     $UNROT_HOME/                 (default ~/.unrot)
       unrot.db                   the event log and compiled state -- the layer
                                  that may one day sync
+      run/                       0700. Runtime sockets, nothing durable.
+        core.sock
       raw/                       NEVER leaves this machine. One rule, one
         raw.db                   directory, no per-file judgment calls.
         sessions/<id>.jsonl
@@ -52,6 +54,50 @@ def store_db_path(root: Path) -> Path:
     of it are described in the same place.
     """
     return root / "unrot.db"
+
+
+#: Darwin caps `sockaddr_un.sun_path` at 104 bytes including the terminator.
+#: Exceeding it fails inside bind() as a bare OSError with no mention of length,
+#: which is a miserable thing to debug -- so the check happens here, where the
+#: path is chosen, and says what is actually wrong.
+SUN_PATH_MAX = 103
+
+
+def run_dir(root: Path) -> Path:
+    """Runtime state: sockets and nothing else. Safe to delete while not running."""
+    return root / "run"
+
+
+def socket_path(root: Path) -> Path:
+    """The Unix socket the API binds when the Mac app supervises it.
+
+    Not a TCP port: there is no port to collide with, nothing appears on the
+    machine's network surface, and reaching the gap graph requires filesystem
+    access to this path rather than the ability to connect to a local port.
+
+    That last property is the whole point, and it rests on the *directory*
+    being 0700 rather than on the socket's own mode -- uvicorn chmods the
+    socket it creates to 0666, so anything relying on the file's permissions
+    would be relying on something that is actively overwritten.
+    """
+    return run_dir(root) / "core.sock"
+
+
+def ensure_private_dir(path: Path) -> Path:
+    """Create `path` as 0700, and narrow it back if it already exists wider.
+
+    This is the access control for the socket, and the only one there is. It is
+    re-applied on every start rather than only at creation, because a directory
+    made before this rule existed -- or loosened by hand -- would otherwise stay
+    open forever with nothing ever noticing.
+
+    It applies to whatever directory the socket is asked to live in, not just to
+    the default `run/`: a caller who passes `--uds` elsewhere is owed the same
+    property, not a weaker one for having been specific.
+    """
+    path.mkdir(parents=True, exist_ok=True)
+    path.chmod(0o700)
+    return path
 
 
 def raw_dir(root: Path) -> Path:

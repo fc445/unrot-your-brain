@@ -6,3 +6,8 @@ __pycache__/
 
 # Machine-local Claude Code permission grants; launch.json is shared, this is not.
 .claude/settings.local.json
+
+# PyInstaller's output and scratch. The frozen sidecar is built, not committed:
+# it is 51 MB of this machine's interpreter and would have to be rebuilt on any
+# other one anyway.
+build/
