@@ -3,3 +3,6 @@ __pycache__/
 .env
 
 .venv/
+
+# Machine-local Claude Code permission grants; launch.json is shared, this is not.
+.claude/settings.local.json

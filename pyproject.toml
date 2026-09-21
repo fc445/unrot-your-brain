@@ -8,10 +8,15 @@ requires-python = ">=3.11"
 # detector's, and nothing below `unrot.detector` imports them. LangChain is here
 # for the OpenAI-compatible client and for LangSmith tracing, which the repo
 # already uses -- not for an agent framework: the detector is one call, not a graph.
+# fastapi/uvicorn are not optional: per the PRD the standalone surface IS the
+# product -- Claude Code integration is capture-only -- so the thing that serves
+# it is a dependency of the thing, not an extra.
 dependencies = [
+    "fastapi>=0.115",
     "langchain-openai>=0.2",
     "pydantic>=2.7",
     "python-dotenv>=1.0",
+    "uvicorn>=0.30",
 ]
 
 [build-system]
@@ -22,7 +27,7 @@ build-backend = "hatchling.build"
 packages = ["src/unrot"]
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = ["httpx>=0.27", "pytest>=8.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

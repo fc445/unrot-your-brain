@@ -1,0 +1,499 @@
+/* unrot's surface.
+ *
+ * The palette is doing product work, not decoration. ideas.md §5 is blunt that
+ * "a daily list of your failures is a product people delete in week two", so
+ * nothing here is red and nothing reads as an error: open gaps are amber
+ * (attention), confirmed ones are blue (in progress), closed ones are green.
+ * Red is reserved for the one thing that genuinely is a failure -- the backend
+ * being unreachable -- which is exactly the distinction journey 3 asks for.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --paper: #fbfaf7;
+  --surface: #ffffff;
+  --surface-sunk: #f4f2ed;
+  --line: #e4e0d7;
+  --line-strong: #cfc9bc;
+
+  --ink: #1c1a17;
+  --ink-soft: #5c574e;
+  --ink-faint: #8a8377;
+
+  --open: #a96a0b;
+  --open-bg: #fdf3e2;
+  --learning: #2f5fa8;
+  --learning-bg: #eaf1fb;
+  --closed: #3d7a56;
+  --closed-bg: #e9f4ed;
+  --alarm: #a8352b;
+  --alarm-bg: #fceceb;
+
+  --radius: 10px;
+  --shadow: 0 1px 2px rgb(28 26 23 / 6%), 0 4px 16px rgb(28 26 23 / 4%);
+
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #16171a;
+    --surface: #1e2024;
+    --surface-sunk: #17191c;
+    --line: #2e3238;
+    --line-strong: #414750;
+
+    --ink: #e9e7e3;
+    --ink-soft: #a8a49d;
+    --ink-faint: #7b7770;
+
+    --open: #e5a94f;
+    --open-bg: #2e2617;
+    --learning: #7fabe8;
+    --learning-bg: #1a2433;
+    --closed: #72b98d;
+    --closed-bg: #18271e;
+    --alarm: #e2867c;
+    --alarm-bg: #2e1c1a;
+
+    --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 4px 16px rgb(0 0 0 / 20%);
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #16171a;
+  --surface: #1e2024;
+  --surface-sunk: #17191c;
+  --line: #2e3238;
+  --line-strong: #414750;
+
+  --ink: #e9e7e3;
+  --ink-soft: #a8a49d;
+  --ink-faint: #7b7770;
+
+  --open: #e5a94f;
+  --open-bg: #2e2617;
+  --learning: #7fabe8;
+  --learning-bg: #1a2433;
+  --closed: #72b98d;
+  --closed-bg: #18271e;
+  --alarm: #e2867c;
+  --alarm-bg: #2e1c1a;
+
+  --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 4px 16px rgb(0 0 0 / 20%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.shell {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 0 16px 96px;
+}
+
+/* ---------------------------------------------------------------- header -- */
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 40px 0 8px;
+}
+
+.wordmark {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 620;
+  letter-spacing: -0.02em;
+}
+
+.wordmark span {
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+
+/* The progress strip. Sessions watched and gaps closed sit beside gaps open, so
+ * the first thing read is never a bare count of what you don't know. */
+.tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.tally b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.headline {
+  margin: 20px 0 4px;
+  font-size: 27px;
+  font-weight: 640;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+
+.subhead {
+  margin: 0 0 8px;
+  max-width: 60ch;
+  color: var(--ink-soft);
+}
+
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 20px 0 0;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-sunk);
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.notice code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+}
+
+/* --------------------------------------------------------------- sections -- */
+
+.section {
+  margin-top: 40px;
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.section-head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 640;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.section-head .n {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+
+.section-head p {
+  margin: 0 0 0 auto;
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}
+
+.section[data-bucket="open"] .section-head h2 { color: var(--open); }
+.section[data-bucket="learning"] .section-head h2 { color: var(--learning); }
+.section[data-bucket="closed"] .section-head h2 { color: var(--closed); }
+
+/* ------------------------------------------------------------------ cards -- */
+
+.card {
+  margin-top: 12px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  transition: opacity 0.18s ease;
+}
+
+.card[data-bucket="open"] { border-left-color: var(--open); }
+.card[data-bucket="learning"] { border-left-color: var(--learning); }
+.card[data-bucket="closed"] { border-left-color: var(--closed); }
+.card[data-busy="true"] { opacity: 0.55; }
+
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.term {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 620;
+  letter-spacing: -0.015em;
+}
+
+.paraphrase {
+  margin: 10px 0 0;
+  max-width: 68ch;
+  color: var(--ink-soft);
+}
+
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 14px;
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}
+
+.card-meta code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+/* ------------------------------------------------------------------- pips -- */
+
+.pip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 560;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.pip[data-tone="open"] { background: var(--open-bg); color: var(--open); }
+.pip[data-tone="learning"] { background: var(--learning-bg); color: var(--learning); }
+.pip[data-tone="closed"] { background: var(--closed-bg); color: var(--closed); }
+.pip[data-tone="quiet"] { background: var(--surface-sunk); color: var(--ink-faint); }
+
+/* ---------------------------------------------------------------- actions -- */
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.btn {
+  padding: 7px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 540;
+  transition:
+    background 0.14s ease,
+    border-color 0.14s ease,
+    transform 0.06s ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--surface-sunk);
+  border-color: var(--ink-faint);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn[data-variant="confirm"] {
+  border-color: color-mix(in srgb, var(--learning) 40%, transparent);
+  color: var(--learning);
+}
+
+.btn[data-variant="confirm"]:hover:not(:disabled) {
+  background: var(--learning-bg);
+}
+
+.btn[data-variant="dismiss"] {
+  border-color: color-mix(in srgb, var(--closed) 40%, transparent);
+  color: var(--closed);
+}
+
+.btn[data-variant="dismiss"]:hover:not(:disabled) {
+  background: var(--closed-bg);
+}
+
+.btn[data-variant="ghost"] {
+  border-color: transparent;
+  color: var(--ink-faint);
+  padding-inline: 8px;
+}
+
+.btn[data-variant="ghost"]:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--surface-sunk);
+}
+
+/* ----------------------------------------------------------- moment view -- */
+
+.moment {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-sunk);
+  overflow: hidden;
+}
+
+.moment-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.turn {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.turn:last-child {
+  border-bottom: 0;
+}
+
+.turn-role {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.turn[data-role="user"] .turn-role {
+  color: var(--open);
+}
+
+.turn pre {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.moment-empty {
+  padding: 12px;
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+
+/* ----------------------------------------------------------- empty states -- */
+
+.state {
+  margin-top: 32px;
+  padding: 32px 28px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.state[data-kind="failed"] {
+  border-color: color-mix(in srgb, var(--alarm) 45%, var(--line));
+  background: var(--alarm-bg);
+}
+
+.state-mark {
+  display: block;
+  margin-bottom: 14px;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.state h2 {
+  margin: 0 0 8px;
+  font-size: 19px;
+  font-weight: 620;
+  letter-spacing: -0.015em;
+}
+
+.state p {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--ink-soft);
+}
+
+.state[data-kind="failed"] h2,
+.state[data-kind="failed"] .state-mark {
+  color: var(--alarm);
+}
+
+.next-step {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-sunk);
+}
+
+.next-step span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--ink-faint);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.next-step code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink);
+  user-select: all;
+}
+
+.loading {
+  margin-top: 60px;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+/* ----------------------------------------------------------------- mobile -- */
+
+@media (max-width: 560px) {
+  .headline { font-size: 23px; }
+  .card { padding: 16px; }
+  .section-head p { display: none; }
+}

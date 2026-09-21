@@ -44,6 +44,16 @@ def home(override: str | Path | None = None) -> Path:
     return Path.home() / ".unrot"
 
 
+def store_db_path(root: Path) -> Path:
+    """The event log. The layer that may one day sync -- note it is NOT under raw/.
+
+    Lives here rather than in `unrot.store` because this module is where the
+    layout is written down, and the sync boundary is only legible if both sides
+    of it are described in the same place.
+    """
+    return root / "unrot.db"
+
+
 def raw_dir(root: Path) -> Path:
     return root / "raw"
 

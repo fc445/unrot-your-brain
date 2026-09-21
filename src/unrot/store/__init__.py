@@ -1,5 +1,6 @@
 """unrot's store: an append-only event log, compiled to current state."""
 
+from . import fixtures
 from .compile import CompileResult, compile_state, derive_state
 from .db import connect
 from .events import (
@@ -25,6 +26,7 @@ __all__ = [
     "connect",
     "derive_state",
     "derived_events",
+    "fixtures",
     "new_ulid",
     "read_all",
     "user_events",
