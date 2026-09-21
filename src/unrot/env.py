@@ -27,7 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 #: a file that may not exist yet.
 SETTINGS: dict[str, str] = {
     "OPENROUTER_API_KEY": "Your OpenRouter key. Also accepted as OPENAI_API_KEY.",
-    "UNROT_MODEL": "Which model answers, e.g. anthropic/claude-sonnet-5.",
+    "UNROT_MODEL": "Which model answers. Any id the endpoint serves.",
     "UNROT_BASE_URL": (
         "OpenAI-compatible endpoint. Point at a local server to keep transcripts"
         " off the network entirely."

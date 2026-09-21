@@ -135,3 +135,22 @@
 - **2026-09-21 — `ModelConfig` moved to `unrot.model`, shared by the detector and the resolver.** The resolver does not depend on detection — it also serves manual submissions, which never touch a transcript — so importing its configuration from `unrot.detector` would assert a relationship that is not there.
 - **2026-09-21 — One answer settles a concept, not one encounter.** Found by running the real chain: `idempotency` had two encounters, and confirming one left the card sitting in "Waiting on you" looking untouched — a button that appeared to do nothing. The question being asked is "do you know idempotency?", so a concept met in three sessions asks once. The other encounters stay unjudged in the data, honestly, because we never asked about them. **Re-asking belongs to journey 8's spaced-retrieval loop and must be driven by elapsed time, not by how many times a card happens to be on screen** — which is also why the unjudged encounters are retained rather than back-filled.
 - **2026-09-21 — Model and endpoint are configured from a project `.env`, found from any working directory.** `UNROT_MODEL` was already read from the environment; what was missing was somewhere to put it. `load_dotenv()` on its own searches upward from the current working directory, which silently does the wrong thing the moment a command is run from elsewhere — and every failure in this area is silent, leaving you talking to the default model while believing you configured another. `unrot.env` looks in the checkout first, then the CWD, and a real environment variable always beats the file so that trying a different model for one run does not mean editing a file and remembering to change it back. Precedence is `--model` flag > environment variable > `.env` > default, pinned by tests because it cannot be inferred from behaviour when it goes wrong. The configured model still flows into `detector_version` and `resolver_version`, so S5 holds: switching models in `.env` stays visible in history rather than looking like the user's world changed.
+
+---
+
+## 2026-09-21 — model default
+
+- **2026-09-21 — Default model switched to `inclusionai/ling-3.0-flash`** (Freddie). Set in `src/unrot/model.py`, `.env` and `.env.example`; `UNROT_MODEL` and `--model` still override per-project and per-run. Because the model id flows into `detector_version` and `resolver_version`, everything produced after this point is distinguishable in history from everything before it — which is exactly what S5 asks for, and also means `--detector-version` will no longer skip the nine sessions analysed under Sonnet, since a different model is a different judgment.
+- **2026-09-21 — Measured, not assumed: the new default is good for the resolver and bad for the detector.** Worth writing down because the two stages have genuinely different demands, and this is the first evidence of it.
+
+  | | ling-3.0-flash | claude-sonnet-5 |
+  | -- | -- | -- |
+  | small resolution call | 3–5s, `K8s` → `Kubernetes` correct | ~12s, correct |
+  | detector, session `106eaf33` | 70s, **found nothing** | 14s, found `rebase` |
+  | detector, session `069485ab` | 159s, flagged `Xcode license agreements` | 25s, emitted nothing |
+
+  Session `106eaf33` is the one verified true positive in the store — the exchange where the assistant announced a rebase and the human replied "woops, wrong repo clear all the local changes". **The new default misses it, and flags noise on a session the old one correctly stayed silent on.** That is both halves of the precision-over-recall bet failing at once, on the stage where the bet actually lives.
+
+  Latency is also wildly variable: an early run hung past eleven minutes on a prompt that later completed in seventy seconds, with both OpenRouter providers reporting healthy. Treat single timings here as indicative rather than stable.
+
+  **Implication, not yet acted on:** this is the concrete case for per-stage model configuration — the detector reads whole transcripts and needs judgment, the resolver answers a narrow question about a short list. One `UNROT_MODEL` cannot serve both well, and the evidence for that is now a measurement rather than an intuition.

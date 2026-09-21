@@ -14,7 +14,7 @@ import sys
 from ..capture import connect as connect_raw
 from ..env import describe, env_path, load_env
 from ..detector import build_proposer, detect
-from ..model import ModelConfig
+from ..model import DEFAULT_MODEL, ModelConfig
 from ..store import compile_state
 from ..store.__main__ import open_store
 from . import deciders, match
@@ -236,7 +236,7 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     def model_flags(p):
-        p.add_argument("--model", help="model id (default: anthropic/claude-sonnet-5)")
+        p.add_argument("--model", help=f"model id (default: $UNROT_MODEL, else {DEFAULT_MODEL})")
         p.add_argument("--base-url", help="OpenAI-compatible endpoint; point at a local server to stay offline")
         p.add_argument("--api-key", help="defaults to $OPENROUTER_API_KEY, then $OPENAI_API_KEY")
 

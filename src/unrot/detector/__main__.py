@@ -10,6 +10,7 @@ from ..capture import connect as connect_raw
 from ..env import load_env
 from . import prompt as prompt_module
 from .detect import DEFAULT_MAX_CANDIDATES, detect, detector_version
+from ..model import DEFAULT_MODEL
 from .model import ModelConfig, build_proposer
 from .windows import build_windows, chunk_windows
 
@@ -44,7 +45,7 @@ def main(argv=None) -> int:
     parser.add_argument("--home", help="override $UNROT_HOME")
     parser.add_argument("--limit", type=int, default=5, help="how many sessions (default 5)")
     parser.add_argument("--max", type=int, default=DEFAULT_MAX_CANDIDATES, help="flag budget per session")
-    parser.add_argument("--model", help="model id (default: anthropic/claude-sonnet-5 via OpenRouter)")
+    parser.add_argument("--model", help=f"model id (default: $UNROT_MODEL, else {DEFAULT_MODEL})")
     parser.add_argument("--base-url", help="OpenAI-compatible endpoint; point at a local server to stay offline")
     parser.add_argument("--api-key", help="defaults to $OPENROUTER_API_KEY, then $OPENAI_API_KEY")
     parser.add_argument("--ranked", action="store_true", help="show everything found, not just what the budget emitted")

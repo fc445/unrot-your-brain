@@ -21,7 +21,13 @@ import os
 from dataclasses import dataclass
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
-DEFAULT_MODEL = "anthropic/claude-sonnet-5"
+
+#: Freddie's choice, 2026-09-21. Override per-project in `.env` (UNROT_MODEL) or
+#: per-run with `--model`; this is only what applies when nothing says otherwise.
+#: Changing it changes `detector_version` and `resolver_version`, which is S5
+#: working as intended -- a model swap must be visible in history rather than
+#: indistinguishable from the user's world having changed.
+DEFAULT_MODEL = "inclusionai/ling-3.0-flash"
 
 
 @dataclass(frozen=True)
