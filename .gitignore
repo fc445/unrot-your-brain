@@ -11,3 +11,12 @@ __pycache__/
 # it is 51 MB of this machine's interpreter and would have to be rebuilt on any
 # other one anyway.
 build/
+
+# Xcode: per-user state inside the project, and any in-tree build products.
+# Products belong in DerivedData -- see mac/README.md on why an in-tree build
+# breaks codesign when the checkout is in a synced folder.
+xcuserdata/
+*.xcuserstate
+DerivedData/
+# SwiftPM scratch, from running a single-file Swift script in the repo.
+.build/
