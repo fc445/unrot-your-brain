@@ -178,3 +178,36 @@ class MadeOut(BaseModel):
     material: MaterialOut
     concept: ConceptOut | None = None
     counts: dict[str, int]
+
+
+class SubmittedOut(BaseModel):
+    """What the resolver did with a capture, and the handle for arguing with it.
+
+    `judgment_event_id` is the point. The resolver's "this looks like X" is
+    stored as its own event precisely so it can be corrected, so the client is
+    handed the address of that event rather than just its conclusion.
+    """
+
+    encounter_id: str
+    concept_id: str
+    canonical_name: str
+    #: 'new' | 'existing' | 'alias'
+    decision: str
+    reasoning: str
+    judgment_event_id: str
+    #: True when a string match settled it, or no model was configured.
+    decided_without_model: bool
+    #: Set only when a model should have been asked and could not be. The
+    #: capture is kept regardless -- filed as new -- and this says so, rather
+    #: than letting a near-duplicate nobody checked for look like a considered
+    #: "this is new".
+    model_unavailable: str | None = None
+    concept: ConceptOut | None = None
+    counts: dict[str, int]
+
+
+class CorrectedOut(BaseModel):
+    correction_event_id: str
+    #: Where the encounter lives now, when the correction moved it.
+    concept: ConceptOut | None = None
+    counts: dict[str, int]

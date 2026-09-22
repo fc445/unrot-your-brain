@@ -44,6 +44,13 @@ SPECS: dict[str, EventSpec] = {
         "concept_created", SYSTEM, "concept", ("concept_id", "canonical_name")
     ),
     "alias_added": EventSpec("alias_added", SYSTEM, "concept", ("concept_id", "alias")),
+    # The repair for an `alias` judgment the user rejected. Without it the
+    # correction would not stick: the alias stays on the concept, the next time
+    # the same words arrive they exact-match it with no model asked, and the
+    # mistake the user argued with is made again, silently.
+    "alias_removed": EventSpec(
+        "alias_removed", SYSTEM, "concept", ("concept_id", "alias")
+    ),
     "concept_merged": EventSpec(
         "concept_merged", SYSTEM, "concept",
         ("from_concept_id", "into_concept_id", "reasoning"),

@@ -153,6 +153,12 @@ def compile_state(conn: sqlite3.Connection) -> CompileResult:
             if concept and payload["alias"] not in concept.aliases:
                 concept.aliases.append(payload["alias"])
 
+        elif etype == "alias_removed":
+            target = _resolve(payload["concept_id"], merges)
+            concept = concepts.get(target)
+            if concept and payload["alias"] in concept.aliases:
+                concept.aliases.remove(payload["alias"])
+
         elif etype == "concept_merged":
             gone, survivor = payload["from_concept_id"], payload["into_concept_id"]
             if gone in concepts:

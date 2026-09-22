@@ -41,6 +41,7 @@ from .schemas import (
     CaptureOut,
     CheckOut,
     ConceptOut,
+    CorrectedOut,
     EncounterOut,
     ExplanationOut,
     GradedOut,
@@ -50,6 +51,7 @@ from .schemas import (
     JudgmentOut,
     MomentOut,
     MomentTurn,
+    SubmittedOut,
     SurfaceOut,
 )
 
@@ -151,6 +153,35 @@ def _build_grader():
         return build_jev_grader(config), DEFAULT_JEV_MODEL.replace("/", "-"), True
     except Exception:  # pragma: no cover - network/config problems at build time
         return keyword_grader, "keyword", False
+
+
+#: The most a capture will accept. "Add to unrot" is for a term met somewhere,
+#: and the Services menu hands over whatever is selected -- which can be a whole
+#: page. Refusing past this keeps "unrot receives the selection and nothing
+#: else" meaning something: a selection this long is a document, not a term.
+MAX_CAPTURE = 600
+
+
+class _ModelUnavailable(Exception):
+    """The decider was asked and could not answer."""
+
+
+def _build_decider():
+    """The resolver's decider and its label, or the string-only one.
+
+    Mirrors `unrot.resolver`'s own choice, so the CLI and the app resolve a
+    capture the same way. Never raises.
+    """
+    from ..model import ModelConfig
+    from ..resolver import build_decider, strict
+
+    config = ModelConfig.from_env()
+    if not config.api_key:
+        return strict, "none"
+    try:
+        return build_decider(config), config.label
+    except Exception:  # pragma: no cover - config problems at build time
+        return strict, "none"
 
 
 def create_app() -> FastAPI:
@@ -477,6 +508,122 @@ def create_app() -> FastAPI:
             line_start=line_start,
             line_end=line_end,
             turns=[MomentTurn(**t) for t in turns],
+        )
+
+    @app.post("/api/submissions", response_model=SubmittedOut)
+    def submit_gap(body: dict) -> SubmittedOut:
+        """A term met outside a session, through the same resolver as everything else.
+
+        Journey 10's other half: the wiki, the thread, the PDF, which capture
+        will never see. It lands as a `manual` encounter, identical in the graph
+        to a detected one -- `source` is provenance, not ranking.
+
+        Only the selection comes in. `seen_in` is an app or document title the
+        user can switch off before sending; it is folded into the paraphrase,
+        which is the layer that has to stand alone, and nowhere else.
+        """
+        from ..resolver import manual, resolve, strict
+
+        body = body or {}
+        text = " ".join(str(body.get("text") or "").split())
+        if not text:
+            raise HTTPException(400, "nothing was selected")
+        if len(text) > MAX_CAPTURE:
+            raise HTTPException(
+                400,
+                f"that selection is {len(text)} characters -- select the term,"
+                " not the passage around it",
+            )
+        own_words = " ".join(str(body.get("paraphrase") or "").split())
+        seen_in = " ".join(str(body.get("seen_in") or "").split())
+        paraphrase = own_words or text
+        if seen_in:
+            paraphrase = f"{paraphrase} (seen in {seen_in})"
+
+        real, label = _build_decider()
+
+        def guarded(submission, shortlist):
+            # The decider runs before `resolve` appends anything, so a failure
+            # here leaves the log untouched and the capture can be re-resolved
+            # without a model -- with provenance that says so, rather than a
+            # string-only decision recorded under a model's name.
+            try:
+                return real(submission, shortlist)
+            except Exception as exc:
+                raise _ModelUnavailable(f"{type(exc).__name__}: {exc}") from exc
+
+        submission = manual(text, paraphrase)
+        unavailable = None
+        with stores() as (conn, _raw):
+            try:
+                resolution = resolve(conn, submission, decide=guarded, model_label=label)
+            except _ModelUnavailable as exc:
+                resolution = resolve(conn, submission, decide=strict, model_label="none")
+                unavailable = (
+                    "The model could not be reached, so this was filed as new"
+                    f" without checking for near-duplicates. ({exc})"
+                )
+            found = read.concepts(conn, _home())
+
+        concept = next((c for c in found if c.concept_id == resolution.concept_id), None)
+        return SubmittedOut(
+            encounter_id=resolution.encounter_id,
+            concept_id=resolution.concept_id,
+            canonical_name=resolution.canonical_name,
+            decision=resolution.decision,
+            reasoning=resolution.reasoning,
+            judgment_event_id=resolution.judgment_event_id,
+            decided_without_model=resolution.decided_without_model or label == "none",
+            model_unavailable=unavailable,
+            concept=_concept_out(concept) if concept else None,
+            counts={b: sum(1 for c in found if c.bucket == b) for b in read.BUCKETS},
+        )
+
+    @app.post("/api/judgments/{event_id}/correct", response_model=CorrectedOut)
+    def correct_judgment(event_id: str, body: dict) -> CorrectedOut:
+        """Argue with the resolver, and optionally repair what it did.
+
+        Journey 19. The correction is a `user` event -- ground truth, never
+        replayed over. `split_encounter` is "No, this is new": the encounter
+        gets a concept of its own. `merge_into` is the opposite repair.
+        """
+        from ..resolver import correct
+
+        body = body or {}
+        reasoning = " ".join(str(body.get("reasoning") or "").split()) or "Corrected by hand."
+        split = body.get("split_encounter") or None
+        merge_into = body.get("merge_into") or None
+
+        with stores() as (conn, _raw):
+            try:
+                correction = correct(
+                    conn,
+                    event_id,
+                    reasoning=reasoning,
+                    split_out=split,
+                    merge_into=merge_into,
+                )
+            except ValueError as exc:
+                raise HTTPException(
+                    404 if str(exc).startswith("no ") else 409, str(exc)
+                ) from exc
+
+            moved = None
+            if split:
+                row = conn.execute(
+                    "SELECT concept_id FROM compiled_encounters WHERE encounter_id = ?",
+                    (split,),
+                ).fetchone()
+                moved = row["concept_id"] if row else None
+            elif merge_into:
+                moved = merge_into
+            found = read.concepts(conn, _home())
+
+        concept = next((c for c in found if c.concept_id == moved), None)
+        return CorrectedOut(
+            correction_event_id=correction,
+            concept=_concept_out(concept) if concept else None,
+            counts={b: sum(1 for c in found if c.bucket == b) for b in read.BUCKETS},
         )
 
     # The built frontend, when there is one. Mounted last so it cannot shadow

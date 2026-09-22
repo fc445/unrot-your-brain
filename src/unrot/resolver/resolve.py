@@ -31,6 +31,7 @@ model at all.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 
@@ -165,6 +166,9 @@ def resolve(
             "concept_id": concept_id,
             "source": submission.source,
             "decided_without_model": not used_model,
+            # Kept on the judgment so a correction can undo exactly this alias
+            # rather than guessing which `alias_added` it caused.
+            **({"alias": alias} if alias else {}),
         },
         subject_id=concept_id,
         origin=origin,
@@ -408,6 +412,7 @@ def correct(
     *,
     reasoning: str,
     merge_into: str | None = None,
+    split_out: str | None = None,
     origin: str = "local",
     recompile: bool = True,
 ) -> str:
@@ -422,6 +427,9 @@ def correct(
     are separable because a judgment can be wrong without the repair being
     obvious, and recording the objection should not wait on knowing the fix.
     """
+    if merge_into and split_out:
+        raise ValueError("a correction repairs by merging or by splitting, not both")
+
     target = conn.execute(
         "SELECT payload FROM events WHERE event_id = ? AND event_type = 'resolver_judgment'",
         (target_event_id,),
@@ -437,8 +445,6 @@ def correct(
         origin=origin,
     )
     if merge_into:
-        import json
-
         was = json.loads(target["payload"]).get("concept_id")
         if was and was != merge_into:
             merge(
@@ -449,9 +455,84 @@ def correct(
                 origin=origin,
                 recompile=False,
             )
+    if split_out:
+        _split(conn, json.loads(target["payload"]), split_out, reasoning, origin)
     if recompile:
         compile_state(conn)
     return event_id
+
+
+def _split(
+    conn: sqlite3.Connection, judged: dict, encounter_id: str, reasoning: str, origin: str
+) -> str:
+    """Repair a wrong match by giving the encounter a concept of its own.
+
+    The inverse of `merge_into`, for "No -- this is new": the resolver filed an
+    encounter under something the user says it is not. Three consequences, all
+    `system` events because they carry out the user's correction rather than
+    being it -- the same division `merge` already uses:
+
+    * a new concept, named for what was actually submitted;
+    * the encounter re-recorded under it, superseding the placement rather than
+      deleting it, and keeping its original time and its judgment -- judgments
+      are keyed by encounter id, so moving it moves nothing the user said;
+    * for an `alias` judgment, the alias taken back off. Otherwise the same
+      words exact-match the wrong concept next time, with no model asked, and
+      the mistake the user just argued with is made again in silence.
+    """
+    was = judged.get("concept_id")
+    row = conn.execute(
+        "SELECT * FROM compiled_encounters WHERE encounter_id = ?", (encounter_id,)
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"no encounter {encounter_id!r} to split out")
+    if row["concept_id"] != was:
+        # Guards against splitting an encounter this judgment never placed --
+        # which would move something the user did not argue about.
+        raise ValueError(
+            f"encounter {encounter_id!r} is not under the concept that judgment chose"
+        )
+
+    name = str(judged.get("input_text") or "").strip() or "untitled"
+    concept_id = _concept_id(conn, name)
+    append(
+        conn,
+        "concept_created",
+        {"concept_id": concept_id, "canonical_name": name},
+        origin=origin,
+        provenance={"resolver_version": resolver_version("none")},
+    )
+
+    if judged.get("decision") == "alias":
+        append(
+            conn,
+            "alias_removed",
+            {"concept_id": was, "alias": judged.get("alias") or name},
+            origin=origin,
+        )
+
+    payload = {
+        "encounter_id": encounter_id,
+        "concept_id": concept_id,
+        "source": row["source"],
+        "paraphrase": row["paraphrase"],
+    }
+    if row["session_id"]:
+        payload["pointer"] = {
+            "session_id": row["session_id"],
+            "line_start": row["line_start"],
+            "line_end": row["line_end"],
+        }
+    append(
+        conn,
+        "encounter_recorded",
+        payload,
+        occurred_at=row["occurred_at"],
+        origin=origin,
+        provenance={"detector_version": row["detector_version"] or "unknown"},
+        supersedes=row["paraphrase_event_id"],
+    )
+    return concept_id
 
 
 def judgments(conn: sqlite3.Connection, limit: int = 50) -> list[sqlite3.Row]:
