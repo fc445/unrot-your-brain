@@ -211,3 +211,46 @@ class CorrectedOut(BaseModel):
     #: Where the encounter lives now, when the correction moved it.
     concept: ConceptOut | None = None
     counts: dict[str, int]
+
+
+class PendingOut(BaseModel):
+    session_id: str
+    last_activity: str | None = None
+    human_turns: int
+    #: 'never' | 'grown'
+    reason: str
+    analysed_at: str | None = None
+    #: The repo the session was working in, as the transcript records it.
+    cwd: str | None = None
+
+
+class QueueOut(BaseModel):
+    """Captured sessions waiting to be analysed. Derived, so it survives anything."""
+
+    pending: list[PendingOut] = Field(default_factory=list)
+    #: Whether a model is configured. Analysis needs one; capture never does.
+    can_analyse: bool
+    #: Sessions being analysed right now.
+    analysing: list[str] = Field(default_factory=list)
+
+
+class CapturedOut(BaseModel):
+    session_id: str
+    #: 'new' | 'appended' | 'unchanged' | 'rewritten' | 'empty' | 'error: ...'
+    status: str
+    turns_added: int = 0
+
+
+class CaptureResultOut(BaseModel):
+    captured: list[CapturedOut] = Field(default_factory=list)
+    pending: int
+
+
+class AnalysedOut(BaseModel):
+    session_id: str
+    clean: bool
+    #: What each candidate was filed under, in order.
+    filed: list[str] = Field(default_factory=list)
+    windows_examined: int
+    detector_version: str
+    counts: dict[str, int]

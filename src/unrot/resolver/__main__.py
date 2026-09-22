@@ -13,7 +13,8 @@ import sys
 
 from ..capture import connect as connect_raw
 from ..env import describe, env_path, load_env
-from ..detector import build_proposer, detect
+from ..analyse import analyse_session
+from ..detector import build_proposer
 from ..model import DEFAULT_MODEL, ModelConfig
 from ..store import compile_state
 from ..store.__main__ import open_store
@@ -23,11 +24,10 @@ from .resolve import (
     correct,
     judgments,
     merge,
-    record_analysis,
     resolve,
     resolver_version,
 )
-from .submissions import from_candidate, manual
+from .submissions import manual
 
 # Keys, the model id and the endpoint all come from the project's `.env` if one
 # is present; none of them are required, and a real environment variable always
@@ -97,41 +97,31 @@ def _cmd_run(args) -> int:
     for session_id in sessions:
         if session_id in already and not args.force:
             continue
-        result = detect(
+        # The same path the watcher takes, so there is one definition of
+        # "analysed" -- including recording the clean case, which is what lets
+        # the surface say "we looked".
+        analysis = analyse_session(
+            conn,
             raw,
             session_id,
             propose=propose,
-            model_label=config.label,
+            decide=decide,
+            detector_label=config.label,
+            resolver_label=model_label,
             max_candidates=args.max,
         )
 
-        print(f"\n{session_id}  ({result.windows_examined} windows)")
-        if not result.emitted:
+        print(f"\n{session_id}  ({analysis.windows_examined} windows)")
+        if analysis.clean:
             totals["clean"] += 1
             print("  clean -- nothing was leaned on that you waved through")
 
-        for candidate in result.emitted:
-            resolution = resolve(
-                conn,
-                from_candidate(candidate),
-                decide=decide,
-                model_label=model_label,
-            )
+        for resolution in analysis.resolutions:
             totals[resolution.decision] += 1
             mark = {"new": "+", "existing": "=", "alias": "~"}[resolution.decision]
             print(f"  {mark} {resolution.canonical_name}  ({resolution.decision})")
             if resolution.decision != "existing":
                 print(f"      {resolution.reasoning}")
-
-        # Recorded whether or not anything was found. The zero case is the whole
-        # point: it is what lets the surface say "we looked" rather than only
-        # ever being able to show what it happened to find.
-        record_analysis(
-            conn,
-            session_id,
-            candidates_found=len(result.emitted),
-            detector_version=result.detector_version,
-        )
 
     print(
         f"\n{len(sessions)} session(s): {totals['clean']} clean,"

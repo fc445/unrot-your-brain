@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -51,6 +52,11 @@ from .schemas import (
     JudgmentOut,
     MomentOut,
     MomentTurn,
+    AnalysedOut,
+    CapturedOut,
+    CaptureResultOut,
+    PendingOut,
+    QueueOut,
     SubmittedOut,
     SurfaceOut,
 )
@@ -182,6 +188,43 @@ def _build_decider():
         return build_decider(config), config.label
     except Exception:  # pragma: no cover - config problems at build time
         return strict, "none"
+
+
+class _NoModel(Exception):
+    """Analysis was asked for and there is no model to do it."""
+
+
+def _build_analyser():
+    """The detector's proposer and the resolver's decider, with their labels.
+
+    Raises `_NoModel` rather than degrading: detection is one model call per
+    window and has no string-only fallback, so without a key there is nothing
+    honest to run. Capture still works -- it never needs a model.
+    """
+    from ..detector import build_proposer
+    from ..model import ModelConfig
+    from ..resolver import build_decider
+
+    config = ModelConfig.from_env()
+    if not config.api_key:
+        raise _NoModel("no model is configured, so nothing can be analysed")
+    try:
+        return build_proposer(config), build_decider(config), config.label, config.label
+    except RuntimeError as exc:
+        raise _NoModel(str(exc)) from exc
+
+
+def _can_analyse() -> bool:
+    from ..model import ModelConfig
+
+    return bool(ModelConfig.from_env().api_key)
+
+
+#: Sessions being analysed right now, so the same one is never run twice at
+#: once -- the watcher and a click on "Analyse now" can both ask. In-process is
+#: enough: there is one core per socket, and `prepare_socket` makes sure of it.
+_ANALYSING: set[str] = set()
+_ANALYSING_LOCK = threading.Lock()
 
 
 def create_app() -> FastAPI:
@@ -623,6 +666,135 @@ def create_app() -> FastAPI:
         return CorrectedOut(
             correction_event_id=correction,
             concept=_concept_out(concept) if concept else None,
+            counts={b: sum(1 for c in found if c.bucket == b) for b in read.BUCKETS},
+        )
+
+    @app.get("/api/queue", response_model=QueueOut)
+    def queue() -> QueueOut:
+        """Captured sessions not yet analysed, or grown since they were.
+
+        Derived from the two stores rather than kept anywhere, which is what lets
+        it survive a relaunch with nothing to persist.
+        """
+        from ..analyse import pending
+
+        with stores() as (conn, raw):
+            waiting = pending(conn, raw)
+        with _ANALYSING_LOCK:
+            running = sorted(_ANALYSING)
+        return QueueOut(
+            pending=[PendingOut(**vars(p)) for p in waiting],
+            can_analyse=_can_analyse(),
+            analysing=running,
+        )
+
+    @app.post("/api/capture", response_model=CaptureResultOut)
+    def capture(body: dict) -> CaptureResultOut:
+        """Copy named transcripts into the raw store. No model, no cost.
+
+        The watcher calls this once a session has gone quiet. It reads only from
+        Claude Code's projects directory: a path anywhere else is refused before
+        anything is opened, symlinks resolved first, because a socket that could
+        be pointed at any file on the machine would be a way to read it.
+        """
+        from ..analyse import pending
+        from ..capture import connect as connect_raw
+        from ..capture.ingest import IngestResult, ingest_file
+
+        requested = (body or {}).get("paths") or []
+        if not isinstance(requested, list) or not requested:
+            raise HTTPException(400, "name the transcripts to capture")
+
+        allowed = paths.CLAUDE_PROJECTS.resolve()
+        sources = []
+        for item in requested:
+            source = Path(str(item)).expanduser().resolve()
+            if source.suffix != ".jsonl" or not source.is_relative_to(allowed):
+                raise HTTPException(400, f"not a Claude Code transcript: {item}")
+            sources.append(source)
+
+        home = paths.home(_home())
+        raw = connect_raw(home)
+        try:
+            results = []
+            for source in sources:
+                try:
+                    results.append(ingest_file(source, conn=raw, root=home))
+                except OSError as exc:
+                    # One unreadable file must not abort the rest.
+                    results.append(IngestResult(source.stem, f"error: {type(exc).__name__}", 0, 0, 0, 0))
+        finally:
+            raw.close()
+
+        with stores() as (conn, raw_ro):
+            waiting = len(pending(conn, raw_ro))
+        return CaptureResultOut(
+            captured=[
+                CapturedOut(session_id=r.session_id, status=r.status, turns_added=r.turns_added)
+                for r in results
+            ],
+            pending=waiting,
+        )
+
+    @app.post("/api/analyse", response_model=AnalysedOut)
+    def analyse(body: dict) -> AnalysedOut:
+        """Detect and resolve one captured session. This is the call that costs.
+
+        One session per request, so the caller can show progress between them,
+        pause between them, and never has a single request outlive its patience.
+        Nothing here decides whether to run -- the watcher asks only when the user
+        has switched automatic analysis on, or clicked "Analyse now".
+        """
+        from ..analyse import analyse_session
+
+        session_id = str((body or {}).get("session_id") or "").strip()
+        if not session_id:
+            raise HTTPException(400, "name a session to analyse")
+
+        try:
+            propose, decide, detector_label, resolver_label = _build_analyser()
+        except _NoModel as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+        with _ANALYSING_LOCK:
+            if session_id in _ANALYSING:
+                raise HTTPException(409, f"{session_id} is already being analysed")
+            _ANALYSING.add(session_id)
+        try:
+            with stores() as (conn, raw):
+                if raw is None or not raw.execute(
+                    "SELECT 1 FROM raw_sessions WHERE session_id = ?", (session_id,)
+                ).fetchone():
+                    raise HTTPException(404, f"{session_id} has not been captured")
+                try:
+                    result = analyse_session(
+                        conn,
+                        raw,
+                        session_id,
+                        propose=propose,
+                        decide=decide,
+                        detector_label=detector_label,
+                        resolver_label=resolver_label,
+                    )
+                except HTTPException:
+                    raise
+                except Exception as exc:
+                    # The session is recorded last, so a failure here leaves it
+                    # pending and a retry is safe.
+                    raise HTTPException(
+                        502, f"the model call failed, so {session_id} is still waiting: {exc}"
+                    ) from exc
+                found = read.concepts(conn, _home())
+        finally:
+            with _ANALYSING_LOCK:
+                _ANALYSING.discard(session_id)
+
+        return AnalysedOut(
+            session_id=session_id,
+            clean=result.clean,
+            filed=[r.canonical_name for r in result.resolutions],
+            windows_examined=result.windows_examined,
+            detector_version=result.detector_version,
             counts={b: sum(1 for c in found if c.bucket == b) for b in read.BUCKETS},
         )
 
