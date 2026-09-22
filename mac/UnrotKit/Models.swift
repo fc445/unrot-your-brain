@@ -336,3 +336,37 @@ public struct Analysed: Codable, Hashable, Sendable {
     public let detectorVersion: String
     public let counts: [String: Int]
 }
+
+/// The model configuration the core resolved -- which is the only honest
+/// answer to "what will be used", since a real environment variable beats the
+/// app's settings.
+public struct CoreConfig: Codable, Hashable, Sendable {
+    public let model: String
+    public let baseUrl: String
+    public let keySet: Bool
+    public let local: Bool
+    /// `classifier` or `keyword`.
+    public let grader: String
+    public let detectorVersion: String
+    /// Empty when the endpoint is local.
+    public let leavesThisMac: [String]
+}
+
+public struct RegenPlan: Codable, Hashable, Sendable {
+    public let detectorVersion: String
+    public let captured: Int
+    public let alreadyDone: Int
+    public let toRun: [String]
+    /// Encounters carrying a user judgment. None of them will be touched.
+    public let protected: Int
+    public let canRun: Bool
+}
+
+public struct RegenPass: Codable, Hashable, Sendable {
+    public let sessionId: String
+    public let protected: Int
+    public let removed: Int
+    public let recorded: Int
+    public let skipped: Bool
+    public let detectorVersion: String
+}

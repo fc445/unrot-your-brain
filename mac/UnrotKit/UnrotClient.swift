@@ -134,6 +134,23 @@ public struct UnrotClient: Sendable {
         return try decode(Analysed.self, await perform("POST", "/api/analyse", body: body, over: patient))
     }
 
+    // MARK: - Settings and regeneration
+
+    public func config() async throws -> CoreConfig {
+        try await get(CoreConfig.self, "/api/config")
+    }
+
+    public func regenPlan() async throws -> RegenPlan {
+        try await get(RegenPlan.self, "/api/regen/plan")
+    }
+
+    /// Re-examine one session under the current detector. Costs model calls.
+    public func regen(sessionId: String) async throws -> RegenPass {
+        let body = try JSONSerialization.data(withJSONObject: ["session_id": sessionId])
+        let patient = UnixSocketHTTP(socketPath: http.socketPath, timeout: 900)
+        return try decode(RegenPass.self, await perform("POST", "/api/regen", body: body, over: patient))
+    }
+
     public func explain(conceptId: String, text: String) async throws -> Graded {
         let body = try JSONSerialization.data(withJSONObject: ["text": text])
         return try await post(Graded.self, "/api/concepts/\(escape(conceptId))/explanation", body: body)

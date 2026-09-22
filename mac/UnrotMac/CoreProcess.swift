@@ -37,6 +37,11 @@ final class CoreProcess {
 
     private(set) var status: Status = .starting
 
+    /// Extra environment for the core -- the endpoint, model and key from
+    /// settings. Added beneath anything already in the app's own environment,
+    /// never over it.
+    var environmentProvider: (() -> [String: String])?
+
     let socketPath: String
     private let home: URL
 
@@ -214,9 +219,15 @@ final class CoreProcess {
             "UNROT_HOME": home.path,
             "PATH": "/usr/bin:/bin",
         ]
-        // Anything the user set for the CLI keeps working, so `unrot.resolver
-        // env` and the app cannot disagree about which model is in effect.
-        for (key, value) in ProcessInfo.processInfo.environment where key.hasPrefix("UNROT_") {
+        // Anything set in the app's own environment wins, as a real environment
+        // variable does for the CLI -- so `unrot.resolver env` and the app
+        // describe the same precedence.
+        let inherited = ProcessInfo.processInfo.environment
+        for (key, value) in inherited
+        where key.hasPrefix("UNROT_") || key == "OPENROUTER_API_KEY" || key == "OPENAI_API_KEY" {
+            environment[key] = value
+        }
+        for (key, value) in environmentProvider?() ?? [:] where environment[key] == nil {
             environment[key] = value
         }
 

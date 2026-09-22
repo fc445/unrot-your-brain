@@ -14,7 +14,14 @@ struct UnrotMacApp: App {
         // The window is AppKit's (see MainWindow). This scene exists for the
         // menu bar commands and, in phase 5, the settings panes.
         Settings {
-            SettingsView(notifier: delegate.notifier, watcher: delegate.watcher)
+            SettingsView(
+                notifier: delegate.notifier,
+                watcher: delegate.watcher,
+                model: delegate.model,
+                regenerator: delegate.regenerator,
+                client: delegate.client,
+                restartCore: { delegate.core.restart() }
+            )
         }
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -40,9 +47,12 @@ struct UnrotMacApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let core = CoreProcess()
-    lazy var store = SurfaceStore(client: UnrotClient(socketPath: core.socketPath))
+    let model = ModelSettings()
+    lazy var client = UnrotClient(socketPath: core.socketPath)
+    lazy var store = SurfaceStore(client: client)
     lazy var quick = QuickAccept(store: store)
-    lazy var watcher = Watcher(client: UnrotClient(socketPath: core.socketPath), store: store, core: core)
+    lazy var watcher = Watcher(client: client, store: store, core: core)
+    lazy var regenerator = Regenerator(client: client, store: store)
 
     private lazy var main = MainWindow { [unowned self] in
         AnyView(
@@ -65,6 +75,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var triageKey: HotKey?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        core.environmentProvider = { [model] in
+            MainActor.assumeIsolated { model.environment() }
+        }
         core.start()
         statusItem = StatusItemController(
             store: store,
