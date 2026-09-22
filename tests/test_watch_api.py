@@ -56,9 +56,15 @@ def a_session(projects, session_id="s-1", *, turns=2):
 
 
 def with_analyser(monkeypatch, propose):
-    monkeypatch.setattr(
-        app_module, "_build_analyser", lambda: (propose, strict, "test-model", "none")
-    )
+    """Replace the model calls, not the configuration.
+
+    The labels come from the real config, as they do in the core, so a run and
+    the plan that previews it name the same detector version.
+    """
+    from unrot.model import ModelConfig
+
+    label = ModelConfig.from_env().label
+    monkeypatch.setattr(app_module, "_build_analyser", lambda: (propose, strict, label, label))
 
 
 # --- capture ----------------------------------------------------------------
@@ -201,3 +207,47 @@ def test_the_same_session_is_never_analysed_twice_at_once(client, projects, monk
         app_module._ANALYSING.discard("s-1")
 
     assert response.status_code == 409
+
+
+# --- configuration and regeneration (phase 5) -----------------------------------
+
+
+def test_the_config_never_echoes_the_key(client, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-very-secret")
+    body = client.get("/api/config").json()
+
+    assert body["key_set"] is True
+    assert "sk-or-very-secret" not in str(body)
+
+
+def test_a_local_endpoint_sends_nothing_off_this_mac(client, monkeypatch):
+    """`.env.example` calls the local option the privacy-first answer. This shows it."""
+    monkeypatch.setenv("UNROT_BASE_URL", "http://localhost:11434/v1")
+    local = client.get("/api/config").json()
+    monkeypatch.setenv("UNROT_BASE_URL", "https://openrouter.ai/api/v1")
+    hosted = client.get("/api/config").json()
+
+    assert local["local"] is True and local["leaves_this_mac"] == []
+    assert hosted["local"] is False and hosted["leaves_this_mac"]
+
+
+def test_the_regeneration_plan_counts_what_a_run_would_touch(client, home, projects):
+    source = a_session(projects)
+    client.post("/api/capture", json={"paths": [str(source)]})
+
+    plan = client.get("/api/regen/plan").json()
+
+    assert plan["captured"] == 1
+    assert plan["to_run"] == ["s-1"]
+    assert plan["protected"] == 0
+
+
+def test_regenerating_one_session_records_it_under_the_current_detector(client, projects, monkeypatch):
+    source = a_session(projects)
+    client.post("/api/capture", json={"paths": [str(source)]})
+    with_analyser(monkeypatch, lambda _prompt: [])
+
+    body = client.post("/api/regen", json={"session_id": "s-1"}).json()
+
+    assert body["session_id"] == "s-1" and body["skipped"] is False
+    assert client.get("/api/regen/plan").json()["to_run"] == []

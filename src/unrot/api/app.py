@@ -55,6 +55,9 @@ from .schemas import (
     AnalysedOut,
     CapturedOut,
     CaptureResultOut,
+    ConfigOut,
+    RegenPassOut,
+    RegenPlanOut,
     PendingOut,
     QueueOut,
     SubmittedOut,
@@ -218,6 +221,28 @@ def _can_analyse() -> bool:
     from ..model import ModelConfig
 
     return bool(ModelConfig.from_env().api_key)
+
+
+#: What leaves this machine when the endpoint is not local, one line per kind of
+#: call. Stated here, beside the code that makes the calls, rather than in a
+#: settings screen that would have to be kept in step with it by hand.
+LEAVES_THIS_MAC = [
+    "Detection: the stretches of a session being analysed -- what you typed and"
+    " what the assistant said back -- a window at a time. Never whole transcripts"
+    " at once, and never tool output.",
+    "Resolution: a candidate term and its one-line paraphrase, with the names of"
+    " concepts it might match.",
+    "The check: your answer and the question it was given to, for grading.",
+    "Material: the concept's name and its paraphrases, to write from and to"
+    " search for sources.",
+]
+
+
+def _is_local(base_url: str) -> bool:
+    from urllib.parse import urlparse
+
+    host = (urlparse(base_url).hostname or "").lower()
+    return host in ("localhost", "127.0.0.1", "::1") or host.endswith(".local")
 
 
 #: Sessions being analysed right now, so the same one is never run twice at
@@ -796,6 +821,92 @@ def create_app() -> FastAPI:
             windows_examined=result.windows_examined,
             detector_version=result.detector_version,
             counts={b: sum(1 for c in found if c.bucket == b) for b in read.BUCKETS},
+        )
+
+    @app.get("/api/config", response_model=ConfigOut)
+    def config() -> ConfigOut:
+        """The model configuration in effect, as the core resolved it.
+
+        Read from the core rather than from the app's own settings on purpose: a
+        real environment variable beats whatever the app passed, so the only
+        honest answer to "what will be used" is the one the core gives.
+        """
+        from ..detector import detector_version
+        from ..model import ModelConfig
+
+        current = ModelConfig.from_env()
+        local = _is_local(current.base_url)
+        _, grader, graded_by_model = _build_grader()
+        return ConfigOut(
+            model=current.model,
+            base_url=current.base_url,
+            key_set=bool(current.api_key),
+            local=local,
+            grader="classifier" if graded_by_model else "keyword",
+            detector_version=detector_version(current.label),
+            leaves_this_mac=[] if local else LEAVES_THIS_MAC,
+        )
+
+    @app.get("/api/regen/plan", response_model=RegenPlanOut)
+    def regen_plan() -> RegenPlanOut:
+        """What regenerating would do. Calls no model."""
+        from ..model import ModelConfig
+        from ..regen import plan
+
+        with stores() as (conn, raw):
+            if raw is None:
+                raise HTTPException(409, "nothing has been captured, so there is nothing to regenerate")
+            preview = plan(conn, raw, model_label=ModelConfig.from_env().label)
+        return RegenPlanOut(**vars(preview), can_run=_can_analyse())
+
+    @app.post("/api/regen", response_model=RegenPassOut)
+    def regen_one(body: dict) -> RegenPassOut:
+        """Re-examine one session under the current detector, protecting every judgment.
+
+        One per request, for the same reasons as analysis: real progress, a stop
+        that lands between sessions, and no request that outlives its patience.
+        `regenerate` commits before it yields, so stopping leaves the log whole.
+        """
+        from ..regen import regenerate
+
+        session_id = str((body or {}).get("session_id") or "").strip()
+        if not session_id:
+            raise HTTPException(400, "name a session to regenerate")
+        try:
+            propose, decide, detector_label, _ = _build_analyser()
+        except _NoModel as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+        with _ANALYSING_LOCK:
+            if session_id in _ANALYSING:
+                raise HTTPException(409, f"{session_id} is already being analysed")
+            _ANALYSING.add(session_id)
+        try:
+            with stores() as (conn, raw):
+                if raw is None or not raw.execute(
+                    "SELECT 1 FROM raw_sessions WHERE session_id = ?", (session_id,)
+                ).fetchone():
+                    raise HTTPException(404, f"{session_id} has not been captured")
+                try:
+                    [result] = list(
+                        regenerate(
+                            conn, raw,
+                            propose=propose, decide=decide, model_label=detector_label,
+                            sessions=[session_id],
+                        )
+                    )
+                except Exception as exc:
+                    raise HTTPException(502, f"regenerating {session_id} failed: {exc}") from exc
+        finally:
+            with _ANALYSING_LOCK:
+                _ANALYSING.discard(session_id)
+        return RegenPassOut(
+            session_id=result.session_id,
+            protected=result.protected,
+            removed=result.removed,
+            recorded=result.recorded,
+            skipped=result.skipped,
+            detector_version=result.detector_version,
         )
 
     # The built frontend, when there is one. Mounted last so it cannot shadow

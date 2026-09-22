@@ -111,6 +111,42 @@ def already_done(conn: sqlite3.Connection, version: str) -> set[str]:
     }
 
 
+@dataclass
+class Plan:
+    """What a run would do, computed without calling a model."""
+
+    detector_version: str
+    captured: int
+    already_done: int
+    #: Sessions a run would re-examine, in the order it would take them.
+    to_run: list[str]
+    #: Encounters carrying a user judgment. None of them will be touched.
+    protected: int
+
+
+def plan(conn: sqlite3.Connection, raw: sqlite3.Connection, *, model_label: str) -> Plan:
+    """The preview: the CLI's `plan` and the app's regeneration pane both read this.
+
+    One function, so the preview a user approves and the run that follows it
+    count the same things.
+    """
+    from ..detector import detector_version as version_of
+
+    version = version_of(model_label)
+    sessions = _sessions_with_turns(raw)
+    done = already_done(conn, version)
+    protected = conn.execute(
+        "SELECT count(*) FROM compiled_encounters WHERE judgment IS NOT NULL"
+    ).fetchone()[0]
+    return Plan(
+        detector_version=version,
+        captured=len(sessions),
+        already_done=len(done & set(sessions)),
+        to_run=[s for s in sessions if s not in done],
+        protected=protected,
+    )
+
+
 def judged_in(conn: sqlite3.Connection, session_id: str) -> set[str]:
     """Encounter ids from this session that carry a user judgment.
 

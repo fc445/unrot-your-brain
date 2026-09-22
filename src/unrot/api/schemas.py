@@ -254,3 +254,38 @@ class AnalysedOut(BaseModel):
     windows_examined: int
     detector_version: str
     counts: dict[str, int]
+
+
+class ConfigOut(BaseModel):
+    """What the core will actually use, as it sees it. The key is never echoed."""
+
+    model: str
+    base_url: str
+    key_set: bool
+    #: True when every model call goes to this machine.
+    local: bool
+    #: 'classifier' | 'keyword'
+    grader: str
+    detector_version: str
+    #: What each kind of model call sends off this machine, stated by the code
+    #: that sends it. Empty when the endpoint is local.
+    leaves_this_mac: list[str] = Field(default_factory=list)
+
+
+class RegenPlanOut(BaseModel):
+    detector_version: str
+    captured: int
+    already_done: int
+    to_run: list[str] = Field(default_factory=list)
+    protected: int
+    can_run: bool
+
+
+class RegenPassOut(BaseModel):
+    session_id: str
+    #: Encounters left strictly alone because the user had judged them.
+    protected: int
+    removed: int
+    recorded: int
+    skipped: bool
+    detector_version: str

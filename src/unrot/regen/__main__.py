@@ -20,7 +20,7 @@ from ..env import load_env
 from ..model import DEFAULT_MODEL, ModelConfig
 from ..resolver import deciders
 from ..store.__main__ import open_store
-from . import already_done, regenerate
+from . import plan, regenerate
 
 load_env()
 
@@ -29,27 +29,13 @@ def _cmd_plan(args) -> int:
     """What a run would do, without doing any of it or calling a model."""
     conn, raw = open_store(args.home), connect_raw(args.home)
     config = ModelConfig.from_env(model=args.model)
-    version = detector_version(config.label)
+    preview = plan(conn, raw, model_label=config.label)
 
-    sessions = [
-        r["session_id"]
-        for r in raw.execute(
-            "SELECT s.session_id FROM raw_sessions s WHERE EXISTS"
-            " (SELECT 1 FROM raw_turns t WHERE t.session_id = s.session_id"
-            "   AND t.role='user' AND t.is_meta=0 AND t.is_sidechain=0)"
-            " ORDER BY s.session_id"
-        )
-    ]
-    done = already_done(conn, version)
-    protected = conn.execute(
-        "SELECT count(*) FROM compiled_encounters WHERE judgment IS NOT NULL"
-    ).fetchone()[0]
-
-    print(f"detector: {version}")
-    print(f"  {len(sessions)} session(s) captured")
-    print(f"  {len(done)} already at this version -- would be skipped")
-    print(f"  {len(sessions) - len(done)} to re-run")
-    print(f"  {protected} encounter(s) carry a judgment and will not be touched")
+    print(f"detector: {preview.detector_version}")
+    print(f"  {preview.captured} session(s) captured")
+    print(f"  {preview.already_done} already at this version -- would be skipped")
+    print(f"  {len(preview.to_run)} to re-run")
+    print(f"  {preview.protected} encounter(s) carry a judgment and will not be touched")
     return 0
 
 
