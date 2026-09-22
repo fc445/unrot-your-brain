@@ -235,7 +235,7 @@ final class Exchange: @unchecked Sendable {
                 self.lock.unlock()
                 self.send(request)
             case .failed(let error):
-                self.settle(.failure(self.classify(error)))
+                self.settle(self.salvage(or: error))
             case .waiting(let error):
                 // Network.framework retries `waiting` indefinitely by design.
                 // For a socket on this machine there is nothing to wait for: if
@@ -253,6 +253,47 @@ final class Exchange: @unchecked Sendable {
     /// own machinery, so this only has to stop the connection.
     func abandon() {
         connection.cancel()
+    }
+
+    /// The response, if all of it has already arrived; otherwise the error.
+    ///
+    /// This is the actual fix for the flakiness, and retrying was only ever
+    /// treating a symptom. With `Connection: close`, the server hanging up *is*
+    /// how a response ends -- and Network.framework reports that hang-up on a
+    /// Unix socket as `.failed(ENETDOWN)`, racing the final receive. When the
+    /// state change wins, a response that arrived in full gets thrown away and
+    /// reported as the core being down. For a POST that is worse than a false
+    /// alarm: the write landed, and the caller is told it did not.
+    ///
+    /// So before believing an error, check whether the bytes already in hand
+    /// are a complete response. Completeness is judged strictly --
+    /// `Content-Length` satisfied, or the chunked terminator seen -- because
+    /// salvaging a truncated body would be a worse lie than the one it replaces.
+    private func salvage(or error: NWError) -> Result<Data, Error> {
+        lock.lock()
+        let held = buffer
+        lock.unlock()
+        if Self.isComplete(held) { return .success(held) }
+        return .failure(classify(error))
+    }
+
+    static func isComplete(_ raw: Data) -> Bool {
+        guard let split = raw.range(of: Data("\r\n\r\n".utf8)),
+              let head = String(data: raw[raw.startIndex..<split.lowerBound], encoding: .utf8)
+        else { return false }
+        let bodyCount = raw.distance(from: split.upperBound, to: raw.endIndex)
+        for line in head.lowercased().components(separatedBy: "\r\n") {
+            if line.hasPrefix("content-length:"),
+               let length = Int(line.dropFirst("content-length:".count).trimmingCharacters(in: .whitespaces)) {
+                return bodyCount >= length
+            }
+            if line.hasPrefix("transfer-encoding:"), line.contains("chunked") {
+                return raw.suffix(5) == Data("0\r\n\r\n".utf8)
+            }
+        }
+        // No length and not chunked: the only end is the close itself, which is
+        // the thing in doubt. Not provably complete, so not salvaged.
+        return false
     }
 
     /// Which connection errors mean "not there", and which mean "try again".
@@ -309,7 +350,7 @@ final class Exchange: @unchecked Sendable {
                 self.lock.unlock()
             }
             if let error {
-                return self.settle(.failure(self.classify(error)))
+                return self.settle(self.salvage(or: error))
             }
             if isComplete {
                 // The server hung up, which with `Connection: close` is how a

@@ -263,3 +263,31 @@ public struct Health: Codable, Hashable, Sendable {
     public let rawOpen: Bool
     public let storePath: String
 }
+
+public struct Submitted: Codable, Hashable, Sendable {
+    public let encounterId: String
+    public let conceptId: String
+    public let canonicalName: String
+    /// `new`, `existing` or `alias`. Only the last two are arguable.
+    public let decision: String
+    public let reasoning: String
+    /// The address of the resolver's judgment -- what a correction names.
+    public let judgmentEventId: String
+    public let decidedWithoutModel: Bool
+    /// Set only when a model should have answered and could not.
+    public let modelUnavailable: String?
+    public let concept: Concept?
+    public let counts: [String: Int]
+
+    /// Whether there is a judgment here worth offering an argument with.
+    /// A string match on the same name, or a concept created new, is not one.
+    public var isArguable: Bool {
+        (decision == "existing" || decision == "alias") && !decidedWithoutModel
+    }
+}
+
+public struct Corrected: Codable, Hashable, Sendable {
+    public let correctionEventId: String
+    public let concept: Concept?
+    public let counts: [String: Int]
+}

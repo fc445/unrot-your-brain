@@ -87,6 +87,31 @@ public struct UnrotClient: Sendable {
         try await post(JudgmentResult.self, "/api/encounters/\(escape(encounterId))/\(verdict.rawValue)")
     }
 
+    /// Take a judgment back. A third event, not a delete: the log keeps the
+    /// mis-key and the correction, and the fold reads whichever came last.
+    public func retract(encounterId: String) async throws -> JudgmentResult {
+        try await post(JudgmentResult.self, "/api/encounters/\(escape(encounterId))/retract")
+    }
+
+    /// A term met outside a session. Only the selection, and a title the user
+    /// can switch off -- nothing about the document it came from.
+    public func submit(text: String, ownWords: String? = nil, seenIn: String? = nil) async throws -> Submitted {
+        var payload: [String: String] = ["text": text]
+        if let ownWords, !ownWords.isEmpty { payload["paraphrase"] = ownWords }
+        if let seenIn, !seenIn.isEmpty { payload["seen_in"] = seenIn }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        return try await post(Submitted.self, "/api/submissions", body: body)
+    }
+
+    /// "No -- this is new": argue with the resolver and give the encounter a
+    /// concept of its own.
+    public func splitOut(judgmentEventId: String, encounterId: String, reasoning: String) async throws -> Corrected {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "reasoning": reasoning, "split_encounter": encounterId,
+        ])
+        return try await post(Corrected.self, "/api/judgments/\(escape(judgmentEventId))/correct", body: body)
+    }
+
     public func explain(conceptId: String, text: String) async throws -> Graded {
         let body = try JSONSerialization.data(withJSONObject: ["text": text])
         return try await post(Graded.self, "/api/concepts/\(escape(conceptId))/explanation", body: body)

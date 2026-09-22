@@ -37,7 +37,14 @@ final class StubServer: @unchecked Sendable {
     /// How many connections this stub has served.
     var accepted: Int { counter.value }
 
-    init(reply: Data) throws {
+    /// Replies with the same bytes to every request.
+    convenience init(reply: Data) throws {
+        try self.init { _, _ in reply }
+    }
+
+    /// Replies per request. `route` gets the method and path and returns the
+    /// whole raw response, so a test can play a small server with state.
+    init(route: @escaping @Sendable (_ method: String, _ path: String) -> Data) throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: "unrot-test-\(UInt32.random(in: 0..<UInt32.max))")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -72,7 +79,10 @@ final class StubServer: @unchecked Sendable {
                 guard client >= 0 else { return }
                 counter.bump()
                 var scratch = [UInt8](repeating: 0, count: 4096)
-                _ = read(client, &scratch, scratch.count)
+                let count = read(client, &scratch, scratch.count)
+                let head = String(decoding: scratch.prefix(max(0, count)), as: UTF8.self)
+                let parts = head.split(separator: " ", maxSplits: 2).map(String.init)
+                let reply = route(parts.first ?? "", parts.count > 1 ? parts[1] : "")
                 reply.withUnsafeBytes { _ = write(client, $0.baseAddress, reply.count) }
                 close(client)
             }
@@ -166,6 +176,24 @@ struct TransportTests {
             #expect(error.isTransport)
         }
         #expect(server.accepted == 1, "the write was re-sent \(server.accepted) times")
+    }
+
+    @Test("a response that fully arrived survives the connection dropping after it")
+    func completeResponsesAreSalvaged() {
+        // The server hanging up is how a `Connection: close` response ends, and
+        // Network.framework reports that as a failure racing the last receive.
+        let body = #"{"ok":true}"#
+        let whole = Data("HTTP/1.1 200 OK\r\nContent-Length: \(body.utf8.count)\r\n\r\n\(body)".utf8)
+        #expect(Exchange.isComplete(whole))
+
+        // ...but only when provably whole. A short body is not salvaged.
+        #expect(!Exchange.isComplete(whole.dropLast(3)))
+        // Nor is one with no length, whose only end is the close in question.
+        #expect(!Exchange.isComplete(Data("HTTP/1.1 200 OK\r\n\r\n{}".utf8)))
+        // A chunked body is complete at its terminator and not before.
+        let chunked = Data("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\n".utf8)
+        #expect(Exchange.isComplete(chunked))
+        #expect(!Exchange.isComplete(chunked.dropLast(2)))
     }
 
     @Test("a truncated response is a transport failure, never a partial answer")

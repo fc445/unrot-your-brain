@@ -153,6 +153,39 @@ public final class SurfaceStore {
         }
     }
 
+    /// Undo a judgment. Returns false if it did not land.
+    @discardableResult
+    public func retract(_ encounterId: String) async -> Bool {
+        busy.insert(encounterId)
+        defer { busy.remove(encounterId) }
+        do {
+            _ = try await client.retract(encounterId: encounterId)
+            await load()
+            return true
+        } catch let error as APIError {
+            failure = error.isTransport ? error.message : "That undo did not save: \(error.message)"
+            return false
+        } catch {
+            return false
+        }
+    }
+
+    /// The gap quick accept would answer next: the first unanswered encounter
+    /// in the first waiting concept, in the order the server sent them.
+    ///
+    /// Picks nothing and ranks nothing. `read.py` decides what is waiting and
+    /// in what order; this takes the top of what it was given.
+    public var nextWaiting: (concept: Concept, encounter: Encounter)? {
+        for concept in concepts(in: .open) {
+            if let encounter = concept.encounters.first(where: { $0.judgment == nil }) {
+                return (concept, encounter)
+            }
+        }
+        return nil
+    }
+
+    public var waitingCount: Int { surface?.count(.open) ?? 0 }
+
     public func submitExplanation(conceptId: String, text: String) async -> Graded? {
         do {
             let result = try await client.explain(conceptId: conceptId, text: text)
@@ -183,6 +216,22 @@ public final class SurfaceStore {
         } catch {
             material[conceptId] = MaterialRequest(busy: false, error: "Could not make anything for that.")
         }
+    }
+
+    public func submit(text: String, ownWords: String?, seenIn: String?) async throws -> Submitted {
+        let result = try await client.submit(text: text, ownWords: ownWords, seenIn: seenIn)
+        await load()
+        return result
+    }
+
+    public func splitOut(_ submitted: Submitted, reasoning: String) async throws -> Corrected {
+        let result = try await client.splitOut(
+            judgmentEventId: submitted.judgmentEventId,
+            encounterId: submitted.encounterId,
+            reasoning: reasoning
+        )
+        await load()
+        return result
     }
 
     public func check(conceptId: String) async throws -> Check {
