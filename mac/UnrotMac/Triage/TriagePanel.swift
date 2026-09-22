@@ -60,7 +60,7 @@ final class TriagePanel: NSObject, NSWindowDelegate {
     }
 }
 
-private struct TriageView: View {
+struct TriageView: View {
     let store: SurfaceStore
     let quick: QuickAccept
     let finished: () -> Void

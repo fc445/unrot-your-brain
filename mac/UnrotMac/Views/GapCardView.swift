@@ -1,10 +1,13 @@
 //  GapCardView.swift
 //  UnrotMac
 //
-//  One concept, its encounters, and everything you can do about it.
+//  One concept, after the Main artboard. One card per concept rather than a row
+//  per encounter: one answer settles the concept (read.py's `bucket_for`), so a
+//  concept met twice asks its question once and says "seen twice".
 //
-//  A port of ui/src/components/GapCard.tsx. The card renders whichever bucket
-//  the server put the concept in; it never works one out.
+//  The card renders whichever bucket the server put the concept in. What it
+//  offers follows from that: a waiting card asks the one question; a card you
+//  said you didn't know offers the check and something to read.
 
 import SwiftUI
 import UnrotKit
@@ -13,266 +16,158 @@ struct GapCardView: View {
     let concept: Concept
     @Bindable var store: SurfaceStore
     let quick: QuickAccept
-    /// The encounter K and D will answer, if it is on this card.
-    let nextEncounterId: String?
-
-    @State private var showingCheck = false
-    @State private var openMoment: MomentRequest?
+    let router: Router
+    var isFocused = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             header
 
-            ForEach(concept.encounters) { encounter in
-                EncounterRow(
-                    encounter: encounter,
-                    busy: store.busy.contains(encounter.encounterId),
-                    isNext: encounter.encounterId == nextEncounterId,
-                    onJudge: { verdict in
-                        // Through quick accept even for a click, so every answer
-                        // gets the same undo regardless of how it was given.
-                        Task { await quick.answer(concept: concept, encounter: encounter, verdict) }
-                    },
-                    onMoment: { openMoment = MomentRequest(id: encounter.encounterId) }
-                )
+            if let paraphrase = concept.lead?.paraphrase {
+                Text(paraphrase)
+                    .font(.system(size: 13.5))
+                    .foregroundStyle(Color.inkSoft)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
             }
 
-            if let graded = store.justGraded, graded.concept?.conceptId == concept.conceptId {
-                CheckResultView(graded: graded) { store.justGraded = nil }
+            if let provenance = concept.lead?.provenance {
+                Text(provenance)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Color.inkFaint)
             }
 
-            if showingCheck {
-                CheckView(conceptId: concept.conceptId, store: store) {
-                    showingCheck = false
-                }
-            }
-
-            actions
+            actions.padding(.top, 2)
 
             ForEach(concept.material) { material in
                 MaterialView(material: material)
             }
-
             if let error = store.materialState(concept.conceptId).error {
-                // A refusal is the provenance gate working, so it stays here on
-                // the card in the server's own words rather than taking over
-                // the page as though the core had broken.
-                RefusalNote(text: error)
+                // A refusal is the provenance gate working, so it stays on the
+                // card in the server's own words, titled by which gate it was.
+                let recursed = store.materialState(concept.conceptId).status == 409
+                RefusalNote(
+                    text: error,
+                    title: recursed ? "Refused — would recurse" : "Refused — not grounded",
+                    tint: recursed ? .bucketLearning : .bucketOpen,
+                    wash: recursed ? .bucketLearningBG : .bucketOpenBG
+                )
             }
         }
         .padding(16)
         .background(Color.card, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.rule, lineWidth: 1))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(isFocused ? Color.link.opacity(0.7) : Color.rule, lineWidth: isFocused ? 1.5 : 1)
+        )
         .opacity(store.isBusy(concept) ? 0.55 : 1)
-        .sheet(item: $openMoment) { request in
-            MomentSheet(encounterId: request.id, store: store) { openMoment = nil }
-        }
+        .animation(.easeOut(duration: 0.12), value: isFocused)
     }
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(concept.name)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Color.inkPrimary)
                 .textSelection(.enabled)
-
-            Pip(text: concept.gapType, tint: .inkFaint, wash: .sunk)
-
-            if let level = concept.latestLevel {
-                Pip(text: level.label, tint: level.tint, wash: concept.bucket.wash)
+            if concept.typedIn {
+                // Provenance, never ranking: styled as a label, not a lesser card.
+                Pip(text: "you added this one", tint: .bucketLearning, wash: .bucketLearningBG)
+            } else if concept.bucket == .open {
+                Pip(text: "waved through", tint: .bucketOpen, wash: .bucketOpenBG)
             }
-
             Spacer()
-
-            if concept.encounterCount > 1 {
-                Text("\(concept.encounterCount) encounters")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.inkFaint)
-            }
+            Text(corner)
+                .font(.system(size: 11.5))
+                .foregroundStyle(Color.inkFaint)
         }
+    }
+
+    /// Top right: how often it came up while it waits; how the check went once
+    /// it is being learned.
+    private var corner: String {
+        if concept.bucket == .open { return concept.seen }
+        if let level = concept.latestLevel { return "answered · \(level.label.lowercased())" }
+        return concept.bucket == .learning ? "no answer yet" : concept.seen
     }
 
     @ViewBuilder
     private var actions: some View {
-        let busy = store.materialState(concept.conceptId).busy
         HStack(spacing: 8) {
-            if concept.bucket != .closed {
-                Button(showingCheck ? "Hide the check" : "Answer the check") {
-                    showingCheck.toggle()
+            if concept.bucket == .open, let encounter = concept.unanswered {
+                Button { answer(encounter, .confirm) } label: {
+                    HStack(spacing: 6) { Text("I didn't know this"); if isFocused { Keycap(key: "D", inverted: true) } }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(UnrotButton(weight: .primary))
+                Button { answer(encounter, .dismiss) } label: {
+                    HStack(spacing: 6) { Text("I knew it"); if isFocused { Keycap(key: "K") } }
+                }
+                .buttonStyle(UnrotButton())
+            } else if concept.bucket != .closed {
+                Button("Explain it") { router.check = .init(conceptId: concept.conceptId) }
+                    .buttonStyle(UnrotButton(weight: concept.bucket == .learning ? .primary : .secondary))
+                MaterialMenu(concept: concept, store: store)
             }
 
-            Menu("Make me something") {
-                Button("Written, with sources") {
-                    Task { await store.makeMaterial(conceptId: concept.conceptId, format: .textual) }
-                }
-                Button("Sources only") {
-                    Task { await store.makeMaterial(conceptId: concept.conceptId, format: .sourcesOnly) }
-                }
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .disabled(busy)
-
-            if busy {
+            if store.materialState(concept.conceptId).busy {
                 ProgressView().controlSize(.small)
             }
             Spacer()
-        }
-        .font(.system(size: 12))
-    }
-}
-
-private struct EncounterRow: View {
-    let encounter: Encounter
-    let busy: Bool
-    /// Whether K and D answer this one. Shown, so the keys are never a guess.
-    let isNext: Bool
-    let onJudge: (Verdict) -> Void
-    let onMoment: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
-                Text(encounter.paraphrase ?? "—")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.inkSoft)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                // Provenance, never ranking: a `manual` gap is styled exactly
-                // like a detected one, because it is exactly as real.
-                Pip(text: encounter.source, tint: .inkFaint, wash: .sunk)
-            }
-
-            HStack(spacing: 8) {
-                if let judgment = encounter.judgment {
-                    Text(judgment == "confirmed" ? "You said you didn't know this" : "You knew this")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color.inkFaint)
-                } else {
-                    Button { onJudge(.confirm) } label: { KeyHint(label: "I didn't know this", key: isNext ? "D" : nil) }
-                        .buttonStyle(.borderedProminent)
-                    Button { onJudge(.dismiss) } label: { KeyHint(label: "I knew this", key: isNext ? "K" : nil) }
-                        .buttonStyle(.bordered)
+            if let encounter = concept.lead, encounter.sessionId != nil {
+                Button("Show the moment →") {
+                    router.moment = .init(conceptId: concept.conceptId, encounterId: encounter.encounterId)
                 }
-
-                Button("Show me the moment") { onMoment() }
-                    .buttonStyle(.link)
-
-                if busy { ProgressView().controlSize(.small) }
-                Spacer()
+                .buttonStyle(LinkButton())
             }
-            .font(.system(size: 12))
-            .disabled(busy)
         }
-        .padding(.leading, 10)
-        .overlay(alignment: .leading) {
-            Rectangle().fill(Color.rule).frame(width: 2)
-        }
+    }
+
+    private func answer(_ encounter: Encounter, _ verdict: Verdict) {
+        Task { await quick.answer(concept: concept, encounter: encounter, verdict) }
     }
 }
 
-struct Pip: View {
-    let text: String
-    let tint: Color
-    let wash: Color
+/// "Make something to read", with its two formats. Neither is the degraded one.
+struct MaterialMenu: View {
+    let concept: Concept
+    let store: SurfaceStore
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(tint)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(wash, in: Capsule())
+        Menu {
+            Button("Written, with sources") {
+                Task { await store.makeMaterial(conceptId: concept.conceptId, format: .textual) }
+            }
+            Button("Sources only — writes nothing") {
+                Task { await store.makeMaterial(conceptId: concept.conceptId, format: .sourcesOnly) }
+            }
+        } label: {
+            Text("Make something to read")
+        }
+        .menuStyle(.button)
+        .buttonStyle(UnrotButton())
+        .fixedSize()
+        .disabled(store.materialState(concept.conceptId).busy)
     }
 }
 
 struct RefusalNote: View {
     let text: String
+    var title: String? = nil
+    var tint: Color = .bucketOpen
+    var wash: Color = .bucketOpenBG
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "hand.raised")
-                .font(.system(size: 11))
-                .foregroundStyle(Color.bucketOpen)
+        VStack(alignment: .leading, spacing: 4) {
+            if let title {
+                Text(title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(tint)
+            }
             Text(text)
-                .font(.system(size: 12))
+                .font(.system(size: 12.5))
                 .foregroundStyle(Color.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(10)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.bucketOpenBG, in: RoundedRectangle(cornerRadius: 8))
-    }
-}
-
-struct MomentRequest: Identifiable, Hashable {
-    let id: String
-}
-
-/// The moment is fetched when it is asked for, not with the surface.
-///
-/// `/api/surface` already carries every concept, encounter, explanation and
-/// piece of material; adding forty transcript lines per encounter to that
-/// would make the first paint pay for something almost nobody opens.
-private struct MomentSheet: View {
-    let encounterId: String
-    let store: SurfaceStore
-    let onClose: () -> Void
-
-    @State private var moment: Moment?
-    @State private var failure: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("The moment").font(.display(17))
-                Spacer()
-                Button("Done", action: onClose).keyboardShortcut(.defaultAction)
-            }
-            .padding(14)
-
-            Divider()
-
-            ScrollView {
-                if let moment {
-                    MomentView(moment: moment)
-                } else if let failure {
-                    RefusalNote(text: failure).padding(14)
-                } else {
-                    ProgressView().controlSize(.small).padding(30)
-                }
-            }
-        }
-        .frame(width: 560, height: 460)
-        .background(Color.paper)
-        .task {
-            do {
-                moment = try await store.moment(encounterId: encounterId)
-            } catch let error as APIError {
-                failure = error.message
-            } catch {
-                failure = "Could not replay that moment."
-            }
-        }
-    }
-}
-
-private struct KeyHint: View {
-    let label: String
-    let key: String?
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Text(label)
-            if let key {
-                Text(key)
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
-            }
-        }
+        .background(wash, in: RoundedRectangle(cornerRadius: 8))
     }
 }

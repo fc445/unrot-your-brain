@@ -35,7 +35,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
 
     private func build() -> NSWindow {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 880, height: 780),
+            contentRect: NSRect(x: 0, y: 0, width: 1040, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -44,7 +44,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 620, height: 480)
+        window.contentMinSize = NSSize(width: 820, height: 520)
         window.contentView = NSHostingView(rootView: content())
         window.delegate = self
         if !window.setFrameUsingName("unrot.main") { window.center() }

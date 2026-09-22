@@ -33,7 +33,7 @@ struct SettingsView: View {
     }
 }
 
-private struct ModelPane: View {
+struct ModelPane: View {
     @Bindable var settings: ModelSettings
     let client: UnrotClient
     let restartCore: () -> Void
@@ -133,7 +133,7 @@ private struct ModelPane: View {
     }
 }
 
-private struct RegeneratePane: View {
+struct RegeneratePane: View {
     let regenerator: Regenerator
     @State private var confirming = false
 
@@ -209,7 +209,7 @@ private struct RegeneratePane: View {
     }
 }
 
-private struct WatchingPane: View {
+struct WatchingPane: View {
     @Bindable var watcher: Watcher
 
     var body: some View {
@@ -288,7 +288,7 @@ private struct WatchingPane: View {
     }
 }
 
-private struct NotificationsPane: View {
+struct NotificationsPane: View {
     @Bindable var notifier: Notifier
 
     var body: some View {
@@ -336,7 +336,7 @@ private struct NotificationsPane: View {
     }
 }
 
-private struct CapturePane: View {
+struct CapturePane: View {
     @State private var retained: String?
 
     var body: some View {

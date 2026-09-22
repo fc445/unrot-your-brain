@@ -50,6 +50,8 @@ class EncounterOut(BaseModel):
     line_start: int | None = None
     line_end: int | None = None
     resolvable: bool = False
+    #: The repo the session ran in -- provenance for the card, read locally.
+    repo: str | None = None
 
 
 class ExplanationOut(BaseModel):

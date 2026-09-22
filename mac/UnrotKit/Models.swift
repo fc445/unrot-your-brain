@@ -103,6 +103,8 @@ public struct Encounter: Codable, Hashable, Sendable, Identifiable {
     /// Whether the raw transcript is still on this machine. False on the
     /// portable layer by construction, so a card must read fine without it.
     public let resolvable: Bool
+    /// The repo the session ran in, when the raw layer is on this machine.
+    public let repo: String?
 
     public var id: String { encounterId }
 }
@@ -142,13 +144,34 @@ public struct LearningMaterial: Codable, Hashable, Sendable, Identifiable {
 
     public var id: String { materialId }
 
-    /// Loosely typed on the wire (`list[dict]`), so it is decoded permissively:
-    /// a source that arrives with fields this build has never heard of is still
-    /// a source, and dropping it would quietly make material look ungrounded.
+    /// `material/sources.py`'s `Source`: `kind` is `code`, `transcript` or
+    /// `web`, and `ref` is a path, a session pointer or a URL accordingly.
+    /// Decoded permissively -- a source with fields this build has never heard
+    /// of is still a source, and dropping it would make material look ungrounded.
     public struct Source: Codable, Hashable, Sendable {
+        public let kind: String?
+        public let ref: String?
         public let title: String?
-        public let url: String?
+        public let excerpt: String?
+        public let verified: Bool?
         public let note: String?
+
+        /// A link only for the web: a code path or a session pointer is not
+        /// somewhere a browser can go.
+        public var url: URL? {
+            guard kind == "web", let ref, ref.hasPrefix("http") else { return nil }
+            return URL(string: ref)
+        }
+
+        /// "ietf.org", "your machine", "this session" -- where it lives.
+        public var whereFrom: String? {
+            switch kind {
+            case "web": return url?.host()?.replacingOccurrences(of: "www.", with: "")
+            case "code": return ref.map { "your machine · \($0)" } ?? "your machine"
+            case "transcript": return "the session this came up in"
+            default: return ref
+            }
+        }
     }
 }
 

@@ -1,13 +1,13 @@
 //  RootView.swift
 //  UnrotMac
 //
-//  A port of ui/src/App.tsx, and it follows that file closely on purpose --
-//  down to which decisions are not made here.
+//  The window, after the Main and Silence artboards: a title bar carrying the
+//  wordmark and the one ambient status, a sidebar of the three lists, and the
+//  page.
 //
-//  Nothing in this view computes a bucket, a surface state, a headline or a
-//  next step. Every one of those arrives from `/api/surface` already decided,
-//  because the rule that decides them has to stay next to `derive_state` in
-//  `api/read.py`. What this file decides is layout.
+//  Nothing here decides a bucket, a surface state, a headline or a next step --
+//  those arrive from /api/surface. What this file decides is layout, focus, and
+//  which of the server's states gets which button.
 
 import SwiftUI
 import UnrotKit
@@ -17,49 +17,30 @@ struct RootView: View {
     @Bindable var store: SurfaceStore
     let quick: QuickAccept
     let watcher: Watcher
+    var router: Router
+    var addGap: () -> Void = {}
 
+    /// The card K and D answer. Arrow keys move it; it defaults to the top.
+    @State private var focused: String?
     @Environment(\.undoManager) private var undoManager
 
+    private var waiting: [Concept] { store.concepts(in: .open) }
+    private var focusedConcept: Concept? {
+        waiting.first { $0.conceptId == focused } ?? waiting.first
+    }
+
     var body: some View {
-        ZStack {
-            Color.paper.ignoresSafeArea()
-            content
-        }
-        // K and D answer the gap on top of the pile. Handled here rather than
-        // as keyboard shortcuts, deliberately: a shortcut on a bare letter
-        // fires even while a text editor has focus, so typing an explanation
-        // containing a "d" would answer a gap. `onKeyPress` on the list only
-        // sees keys a focused editor did not take.
-        .focusable()
-        .focusEffectDisabled()
-        .onKeyPress(characters: CharacterSet(charactersIn: "dDkK"), phases: .down) { press in
-            guard let (concept, encounter) = store.nextWaiting else { return .ignored }
-            let verdict: Verdict = press.characters.lowercased() == "d" ? .confirm : .dismiss
-            Task { await quick.answer(concept: concept, encounter: encounter, verdict) }
-            return .handled
-        }
-        .overlay(alignment: .bottom) {
-            if let answer = quick.undoable {
-                UndoStrip(answer: answer) { Task { await quick.undo() } }
-                    .frame(maxWidth: 420)
-                    .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
-                    .padding(.bottom, 18)
+        VStack(spacing: 0) {
+            TitleBar(watcher: watcher, core: core, addGap: addGap)
+            Divider()
+            HStack(spacing: 0) {
+                Sidebar(store: store, core: core)
+                Divider()
+                page
             }
         }
-        // ⌘Z through the window's own undo manager, so it takes its turn with
-        // text editing the way every Mac app's undo does -- rather than a
-        // shortcut that would steal ⌘Z from an editor mid-sentence.
-        .onChange(of: quick.undoable) { _, answer in
-            undoManager?.removeAllActions(withTarget: quick)
-            guard let answer else { return }
-            undoManager?.registerUndo(withTarget: quick) { target in
-                Task { @MainActor in await target.undo() }
-            }
-            undoManager?.setActionName(answer.verdict == .confirm ? "“Didn't Know This”" : "“Knew This”")
-        }
+        .background(Color.paper)
         .task {
-            // The first paint waits for the core to answer rather than showing
-            // a failure the supervisor is already fixing.
             await store.load()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
@@ -67,228 +48,335 @@ struct RootView: View {
                 await store.load()
             }
         }
+        // K and D answer the focused card; the arrows move focus. Handled here
+        // rather than as keyboard shortcuts, because a shortcut on a bare
+        // letter fires even while a text editor has focus.
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress(keys: [.upArrow, .downArrow]) { press in
+            move(press.key == .upArrow ? -1 : 1)
+            return .handled
+        }
+        .onKeyPress(characters: CharacterSet(charactersIn: "dDkK"), phases: .down) { press in
+            guard let concept = focusedConcept, let encounter = concept.unanswered else { return .ignored }
+            let verdict: Verdict = press.characters.lowercased() == "d" ? .confirm : .dismiss
+            Task { await quick.answer(concept: concept, encounter: encounter, verdict) }
+            return .handled
+        }
+        .overlay(alignment: .bottom) {
+            if let answer = quick.undoable {
+                UndoStrip(answer: answer) { Task { await quick.undo() } }
+                    .frame(maxWidth: 440)
+                    .shadow(color: .black.opacity(0.1), radius: 10, y: 3)
+                    .padding(.bottom, 18)
+            }
+        }
+        .onChange(of: quick.undoable) { _, answer in
+            undoManager?.removeAllActions(withTarget: quick)
+            guard let answer else { return }
+            undoManager?.registerUndo(withTarget: quick) { target in
+                Task { @MainActor in await target.undo() }
+            }
+            undoManager?.setActionName(answer.verdict == .confirm ? "“Didn't Know This”" : "“Knew It”")
+        }
+        .sheet(item: Binding(get: { router.moment }, set: { router.moment = $0 })) { request in
+            MomentSheet(request: request, store: store, quick: quick) { router.moment = nil }
+        }
+        .sheet(item: Binding(get: { router.check }, set: { router.check = $0 })) { request in
+            CheckSheet(conceptId: request.conceptId, store: store) { router.check = nil }
+        }
     }
 
-    @ViewBuilder
-    private var content: some View {
+    private func move(_ step: Int) {
+        guard !waiting.isEmpty else { return }
+        let index = waiting.firstIndex { $0.conceptId == focusedConcept?.conceptId } ?? 0
+        focused = waiting[max(0, min(waiting.count - 1, index + step))].conceptId
+    }
+
+    // MARK: - The page
+
+    private var page: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Masthead(store: store, core: core)
-
-                QueueBar(watcher: watcher)
-                    .padding(.top, 28)
+                if let surface = store.surface, store.state != .failed {
+                    Text(meta(surface))
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.inkFaint)
+                        .padding(.bottom, 6)
+                }
 
                 if let empty = store.emptyState {
                     EmptyStateView(
                         state: empty,
-                        headline: headline(for: empty),
-                        detail: detail(for: empty)
+                        headline: empty == .failed ? "unrot-core isn't running" : store.surface?.headline ?? "",
+                        detail: empty == .failed
+                            ? "The window can't reach the local core. This is not an empty list — it is an unanswered question."
+                            : store.surface?.detail ?? "",
+                        analysing: watcher.progress,
+                        action: action(for: empty)
                     )
-                    .padding(.top, 8)
                 } else if let surface = store.surface {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(surface.headline)
-                            .font(.display(26))
-                            .foregroundStyle(Color.inkPrimary)
-                        Text(surface.detail)
-                            .font(.system(size: 13))
-                            .foregroundStyle(Color.inkSoft)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.top, 18)
+                    Text(surface.headline)
+                        .font(.display(32))
+                        .foregroundStyle(Color.inkPrimary)
+                    Text(surface.detail)
+                        .font(.system(size: 13.5))
+                        .foregroundStyle(Color.inkSoft)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 4)
+
+                    QueueBar(watcher: watcher).padding(.top, 14)
 
                     if surface.fixtures > 0 {
                         FixturesNotice(count: surface.fixtures).padding(.top, 14)
                     }
 
                     ForEach(store.populated) { section in
-                        SectionView(section: section, store: store, quick: quick)
+                        SectionHeader(section: section, count: surface.count(section.bucket))
                             .padding(.top, 26)
+                            .padding(.bottom, 10)
+                            .id(section.bucket.rawValue)
+                        if section.bucket == .closed {
+                            ClosedChips(concepts: store.concepts(in: .closed))
+                        } else {
+                            VStack(spacing: 10) {
+                                ForEach(store.concepts(in: section.bucket)) { concept in
+                                    GapCardView(
+                                        concept: concept,
+                                        store: store,
+                                        quick: quick,
+                                        router: router,
+                                        isFocused: concept.conceptId == focusedConcept?.conceptId
+                                    )
+                                    .onTapGesture { if section.bucket == .open { focused = concept.conceptId } }
+                                }
+                            }
+                        }
                     }
                 } else if !store.hasLoadedOnce {
-                    Text("Reading the log…")
+                    Text(core.status.isUp ? "Reading the log…" : "Starting the core…")
                         .font(.system(size: 13))
                         .foregroundStyle(Color.inkFaint)
                         .padding(.top, 40)
                 }
             }
             .padding(.horizontal, 28)
-            .padding(.bottom, 48)
-            .frame(maxWidth: 780, alignment: .leading)
-            .frame(maxWidth: .infinity)
+            .padding(.top, 24)
+            .padding(.bottom, 64)
+            .frame(maxWidth: 820, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    // The server writes the words for every state it sends. `failed` is the one
-    // it cannot send -- a response saying "I failed" is a response -- so it is
-    // the one state whose words live here.
-    private func headline(for state: SurfaceState) -> String {
-        if state == .failed { return "Something broke" }
-        return store.surface?.headline ?? ""
+    /// "31 of 34 sessions examined · last activity Thursday 19:42".
+    private func meta(_ surface: Surface) -> String {
+        var line = "\(surface.capture.sessionsAnalysed) of \(surface.capture.sessions) sessions examined"
+        if let last = Dates.recent(surface.capture.lastActivity) { line += " · last activity \(last)" }
+        return line
     }
 
-    private func detail(for state: SurfaceState) -> String {
-        if state == .failed { return store.failure ?? "The core did not answer." }
-        return store.surface?.detail ?? ""
+    /// The one button each empty state earns, if any. Cold start deliberately
+    /// has none: admitting there is too little history is the point.
+    private func action(for state: SurfaceState) -> EmptyStateView.Action? {
+        switch state {
+        case .failed:
+            return .init(title: "Restart the core", primary: false) { core.restart() }
+        case .notAnalysed where watcher.canAnalyse && !watcher.isRunning:
+            return .init(title: "Examine them now", primary: true) { watcher.analyseNow() }
+        case .notCaptured where !watcher.paused:
+            return .init(title: "Look for sessions now", primary: false) { Task { await watcher.sweep() } }
+        default:
+            return nil
+        }
     }
 }
 
-private struct Masthead: View {
+// MARK: - Title bar
+
+private struct TitleBar: View {
+    let watcher: Watcher
+    let core: CoreProcess
+    let addGap: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Room for the traffic lights, which sit in this bar.
+            Spacer().frame(width: 64)
+            Text("unrot").font(.display(19)).foregroundStyle(Color.inkPrimary)
+            Spacer()
+            StatusPill(watcher: watcher, core: core)
+            Button(action: addGap) {
+                Label("Add a gap", systemImage: "plus")
+            }
+            .buttonStyle(UnrotButton())
+            .keyboardShortcut("n")
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 52)
+        .background(Color.sunk)
+    }
+}
+
+// MARK: - Sidebar
+
+private struct Sidebar: View {
     let store: SurfaceStore
     let core: CoreProcess
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            HStack(spacing: 6) {
-                Text("unrot").font(.display(21))
-                Text("/ your brain")
-                    .font(.display(21))
-                    .foregroundStyle(Color.inkFaint)
+        VStack(alignment: .leading, spacing: 4) {
+            Eyebrow(text: "Lists").padding(.horizontal, 10).padding(.bottom, 4)
+            ForEach(BucketSection.all) { section in
+                HStack(spacing: 9) {
+                    Circle().fill(section.bucket.tint).frame(width: 8, height: 8)
+                    Text(section.title)
+                        .font(.system(size: 13, weight: store.surface?.count(section.bucket) ?? 0 > 0 && section.bucket == .open ? .semibold : .regular))
+                    Spacer()
+                    Text("\(store.surface?.count(section.bucket) ?? 0)")
+                        .font(.system(size: 12).monospacedDigit())
+                        .foregroundStyle(Color.inkFaint)
+                }
+                .foregroundStyle(Color.inkPrimary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(section.bucket == .open && (store.surface?.count(.open) ?? 0) > 0 ? Color.rule.opacity(0.7) : .clear)
+                )
             }
             Spacer()
-            if let capture = store.surface?.capture, let surface = store.surface {
-                HStack(spacing: 16) {
-                    Tally(value: capture.sessionsAnalysed, of: capture.sessions, label: "sessions examined")
-                    Tally(value: surface.count(.open), label: "waiting")
-                    Tally(value: surface.count(.closed), label: "closed")
-                }
+            Divider().padding(.bottom, 6)
+            HStack(spacing: 6) {
+                Circle().fill(core.status.isUp ? Color.watching : Color.alarm).frame(width: 6, height: 6)
+                Text(core.status.isUp ? "core running · local socket" : "core not running")
+                    .font(.system(size: 11))
+                    .foregroundStyle(core.status.isUp ? Color.inkFaint : Color.alarm)
             }
+            .padding(.horizontal, 10)
         }
-        .padding(.top, 22)
-        .padding(.bottom, 14)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Color.rule).frame(height: 1)
-        }
-        .overlay(alignment: .bottomLeading) {
-            CoreBadge(core: core).offset(y: 22)
-        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 18)
+        .frame(width: 200)
+        .background(Color.sunk)
     }
 }
 
-private struct Tally: View {
-    var value: Int
-    var of: Int?
-    var label: String
+// MARK: - Sections
+
+private struct SectionHeader: View {
+    let section: BucketSection
+    let count: Int
 
     var body: some View {
-        HStack(spacing: 4) {
-            Text(of.map { "\(value) of \($0)" } ?? "\(value)")
-                .font(.system(size: 12, weight: .semibold))
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(section.title)
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color.inkPrimary)
-            Text(label)
+            Text("\(count)")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(section.bucket.tint)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
+                .background(section.bucket.wash, in: Capsule())
+            Text(section.note)
                 .font(.system(size: 12))
                 .foregroundStyle(Color.inkFaint)
         }
     }
 }
 
-/// Only ever shown when the core is not up. A healthy core is the normal case
-/// and says nothing about itself.
-private struct CoreBadge: View {
-    let core: CoreProcess
+/// Closed is progress, not a list to work through: names, not cards.
+private struct ClosedChips: View {
+    let concepts: [Concept]
+    private let shown = 12
 
     var body: some View {
-        switch core.status {
-        case .up:
-            EmptyView()
-        case .starting:
-            badge("Starting the core…", tint: .inkFaint, wash: .sunk)
-        case .foreign:
-            badge("Another copy of unrot is running.", tint: .bucketOpen, wash: .bucketOpenBG)
-        case .down(let reason, let attempt):
-            badge("Core not answering — retrying (\(attempt)). \(reason)", tint: .alarm, wash: .alarmBG)
-        case .stopped(let reason):
-            badge("Core stopped. \(reason)", tint: .alarm, wash: .alarmBG)
-        }
-    }
-
-    private func badge(_ text: String, tint: Color, wash: Color) -> some View {
-        Text(text)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(tint)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(wash, in: Capsule())
-    }
-}
-
-/// Seeded data must never read as a finding about the user.
-private struct FixturesNotice: View {
-    let count: Int
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text("fixtures")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(Color.inkFaint)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.sunk, in: Capsule())
-            Text(
-                "\(count) of these events are development fixtures standing in for the "
-                + "resolver. Remove them with `python -m unrot.store seed --clear`."
-            )
-            .font(.system(size: 12))
-            .foregroundStyle(Color.inkSoft)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(10)
-        .background(Color.sunk, in: RoundedRectangle(cornerRadius: 8))
-    }
-}
-
-private struct SectionView: View {
-    let section: BucketSection
-    let store: SurfaceStore
-    let quick: QuickAccept
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(section.title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.inkPrimary)
-                Text("\(store.surface?.count(section.bucket) ?? 0)")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(section.bucket.tint)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(section.bucket.wash, in: Capsule())
-                Text(section.note)
-                    .font(.system(size: 12))
+        FlowLayout(spacing: 8) {
+            ForEach(concepts.prefix(shown)) { concept in
+                Text(concept.name)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(Color.bucketClosed)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 5)
+                    .background(Color.bucketClosedBG, in: Capsule())
+                    .help(concept.lead?.paraphrase ?? concept.name)
+            }
+            if concepts.count > shown {
+                Text("and \(concepts.count - shown) more")
+                    .font(.system(size: 12.5))
                     .foregroundStyle(Color.inkFaint)
-            }
-
-            ForEach(store.concepts(in: section.bucket)) { concept in
-                GapCardView(
-                    concept: concept,
-                    store: store,
-                    quick: quick,
-                    nextEncounterId: store.nextWaiting?.encounter.encounterId
-                )
+                    .padding(.vertical, 5)
             }
         }
     }
 }
 
-/// Captured sessions waiting to be analysed, and the one button that spends
-/// money on them. Absent when there is nothing to say.
+/// Wraps its children onto as many rows as they need.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(width: proposal.width ?? .infinity, subviews: subviews)
+        let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, rows.count - 1))
+        let width = rows.map(\.width).max() ?? 0
+        return CGSize(width: proposal.width ?? width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in arrange(width: bounds.width, subviews: subviews) {
+            var x = bounds.minX
+            for index in row.items {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row { var items: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
+
+    private func arrange(width: CGFloat, subviews: Subviews) -> [Row] {
+        var rows = [Row()]
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            if rows[rows.count - 1].width + size.width > width, !rows[rows.count - 1].items.isEmpty {
+                rows.append(Row())
+            }
+            let gap = rows[rows.count - 1].items.isEmpty ? 0 : spacing
+            rows[rows.count - 1].items.append(index)
+            rows[rows.count - 1].width += gap + size.width
+            rows[rows.count - 1].height = max(rows[rows.count - 1].height, size.height)
+        }
+        return rows
+    }
+}
+
+// MARK: - Bars and notices
+
+/// Captured sessions waiting to be analysed, and the button that spends money
+/// on them. Absent when there is nothing to say.
 private struct QueueBar: View {
     let watcher: Watcher
 
     var body: some View {
         if let line {
-            HStack(alignment: .center, spacing: 10) {
-                Image(systemName: icon)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.inkFaint)
+            HStack(spacing: 10) {
+                Image(systemName: icon).foregroundStyle(Color.inkFaint)
                 Text(line)
-                    .font(.system(size: 12))
                     .foregroundStyle(Color.inkSoft)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
-                button
+                if watcher.isRunning {
+                    Button("Stop") { watcher.stopAnalysing() }.buttonStyle(UnrotButton())
+                } else if watcher.paused {
+                    Button("Resume") { watcher.paused = false }.buttonStyle(UnrotButton())
+                } else if watcher.pendingCount > 0 && watcher.canAnalyse {
+                    Button("Analyse now") { watcher.analyseNow() }.buttonStyle(UnrotButton(weight: .primary))
+                }
             }
+            .font(.system(size: 12.5))
             .padding(10)
             .background(Color.sunk, in: RoundedRectangle(cornerRadius: 8))
         }
@@ -296,15 +384,13 @@ private struct QueueBar: View {
 
     private var line: String? {
         if let error = watcher.lastError { return error }
-        if watcher.isRunning, let progress = watcher.progress {
-            return "Analysing \(progress.done + 1) of \(progress.total)…"
-        }
+        if let progress = watcher.progress { return "Analysing \(progress.done + 1) of \(progress.total)…" }
         if watcher.paused { return "Watching is paused. Finished sessions are not being captured." }
         let n = watcher.pendingCount
         guard n > 0 else { return nil }
         let sessions = n == 1 ? "1 captured session is" : "\(n) captured sessions are"
         if !watcher.canAnalyse {
-            return "\(sessions) waiting, but no model is configured, so none can be analysed yet."
+            return "\(sessions) waiting, but no model is configured. Add one in Settings › Model."
         }
         return watcher.autoAnalyse
             ? "\(sessions) waiting from before automatic analysis was on."
@@ -316,16 +402,21 @@ private struct QueueBar: View {
         if watcher.paused { return "pause.circle" }
         return "tray.full"
     }
+}
 
-    @ViewBuilder
-    private var button: some View {
-        if watcher.isRunning {
-            Button("Stop") { watcher.stopAnalysing() }
-        } else if watcher.paused {
-            Button("Resume") { watcher.paused = false }
-        } else if watcher.pendingCount > 0 && watcher.canAnalyse {
-            Button("Analyse now") { watcher.analyseNow() }
-                .buttonStyle(.borderedProminent)
+/// Seeded data must never read as a finding about the user.
+private struct FixturesNotice: View {
+    let count: Int
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Pip(text: "fixtures", tint: .inkFaint, wash: .rule)
+            Text("\(count) of these events are development fixtures. Remove them with `python -m unrot.store seed --clear`.")
+                .font(.system(size: 12))
+                .foregroundStyle(Color.inkSoft)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(10)
+        .background(Color.sunk, in: RoundedRectangle(cornerRadius: 8))
     }
 }

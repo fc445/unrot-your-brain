@@ -49,6 +49,11 @@ final class CaptureModel {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && phase == .composing
     }
 
+    #if DEBUG
+    /// For the snapshot run only: show a phase without a round trip.
+    func showForSnapshot(_ phase: Phase) { self.phase = phase }
+    #endif
+
     func send() async {
         guard canSend else { return }
         phase = .sending
@@ -137,7 +142,7 @@ final class CapturePanel: NSObject, NSWindowDelegate {
     }
 }
 
-private struct CaptureView: View {
+struct CaptureView: View {
     @Bindable var model: CaptureModel
     let done: () -> Void
 

@@ -53,11 +53,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var quick = QuickAccept(store: store)
     lazy var watcher = Watcher(client: client, store: store, core: core)
     lazy var regenerator = Regenerator(client: client, store: store)
+    let router = Router()
 
     private lazy var main = MainWindow { [unowned self] in
         AnyView(
-            RootView(core: core, store: store, quick: quick, watcher: watcher)
-                .frame(minWidth: 620, minHeight: 480)
+            RootView(
+                core: core, store: store, quick: quick, watcher: watcher, router: router,
+                addGap: { [unowned self] in self.addGap() }
+            )
+                .frame(minWidth: 820, minHeight: 520)
         )
     }
     private var statusItem: StatusItemController?
@@ -75,6 +79,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var triageKey: HotKey?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        if Snapshots.requested {
+            Task { await Snapshots.run() }
+            return
+        }
+        #endif
         core.environmentProvider = { [model] in
             MainActor.assumeIsolated { model.environment() }
         }

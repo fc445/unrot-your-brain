@@ -1,11 +1,11 @@
 //  MaterialView.swift
 //  UnrotMac
 //
-//  Both formats, and neither of them is the degraded one.
+//  After the Material artboard: material is opt-in, and it is grounded.
 //
-//  `sources_only` generates nothing, and so can invent nothing. That is a
-//  property worth having rather than a fallback, so it is labelled as a format
-//  and not as a failure.
+//  Two formats, and neither is the degraded one. Sources only generates
+//  nothing, so it can invent nothing; written material marks every claim with
+//  the source it stands on.
 
 import SwiftUI
 import UnrotKit
@@ -14,64 +14,102 @@ struct MaterialView: View {
     let material: LearningMaterial
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Pip(text: label, tint: .inkSoft, wash: .sunk)
+                Text(material.format == .sourcesOnly ? "Sources only" : "Written, with sources")
+                    .font(.system(size: 13, weight: .semibold))
+                Pip(
+                    text: material.format == .sourcesOnly ? "generates nothing" : "every claim marked",
+                    tint: material.format == .sourcesOnly ? .bucketClosed : .bucketLearning,
+                    wash: material.format == .sourcesOnly ? .bucketClosedBG : .bucketLearningBG
+                )
                 Spacer()
-                if material.deliveredAt != nil {
-                    Text("delivered")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Color.inkFaint)
-                }
             }
 
             if let body = material.body, !body.isEmpty {
-                Text(body)
-                    .font(.system(size: 13))
+                Text(Self.cited(body))
+                    .font(.system(size: 13.5))
                     .foregroundStyle(Color.inkPrimary)
+                    .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
 
             if !material.sources.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Sources")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color.inkFaint)
-                    ForEach(Array(material.sources.enumerated()), id: \.offset) { _, source in
-                        SourceRow(source: source)
+                VStack(alignment: .leading, spacing: 10) {
+                    if material.format != .sourcesOnly { Eyebrow(text: "Stands on") }
+                    ForEach(Array(material.sources.enumerated()), id: \.offset) { index, source in
+                        SourceRow(number: index + 1, source: source)
                     }
                 }
+                .padding(.top, 2)
             }
         }
-        .padding(12)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.sunk, in: RoundedRectangle(cornerRadius: 8))
     }
 
-    private var label: String {
-        switch material.format {
-        case .textual: "written, with sources"
-        case .sourcesOnly: "sources only"
-        default: material.format.rawValue
+    /// "[S1]" and "[S1,S2]" become superscript numbers in the link colour, so
+    /// the prose reads as prose and the grounding is still on every claim.
+    static func cited(_ body: String) -> AttributedString {
+        var out = AttributedString()
+        var rest = Substring(body)
+        while let open = rest.firstIndex(of: "["), let close = rest[open...].firstIndex(of: "]") {
+            let inside = rest[rest.index(after: open)..<close]
+            let marks = inside.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            guard !marks.isEmpty, marks.allSatisfy({ $0.hasPrefix("S") && Int($0.dropFirst()) != nil }) else {
+                out += AttributedString(rest[..<rest.index(after: open)])
+                rest = rest[rest.index(after: open)...]
+                continue
+            }
+            out += AttributedString(rest[..<open])
+            var mark = AttributedString(marks.map { String($0.dropFirst()) }.joined(separator: ","))
+            mark.baselineOffset = 5
+            mark.font = .system(size: 9.5, weight: .semibold)
+            mark.foregroundColor = Color.bucketLearning
+            out += mark
+            rest = rest[rest.index(after: close)...]
         }
+        out += AttributedString(rest)
+        return out
     }
 }
 
 private struct SourceRow: View {
+    let number: Int
     let source: LearningMaterial.Source
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text("•").foregroundStyle(Color.inkFaint)
-            if let urlText = source.url, let url = URL(string: urlText) {
-                Link(source.title ?? urlText, destination: url)
-                    .font(.system(size: 12))
-            } else if let title = source.title {
-                Text(title).font(.system(size: 12)).foregroundStyle(Color.inkSoft)
-            }
-            if let note = source.note {
-                Text(note).font(.system(size: 11)).foregroundStyle(Color.inkFaint)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("\(number)")
+                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Color.inkFaint)
+                .frame(width: 14, alignment: .trailing)
+            VStack(alignment: .leading, spacing: 2) {
+                if let url = source.url {
+                    Link(source.title ?? url.absoluteString, destination: url)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.link)
+                } else {
+                    Text(source.title ?? source.ref ?? "Untitled source")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.inkPrimary)
+                }
+                if let whereFrom = source.whereFrom {
+                    Text(whereFrom)
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(Color.inkFaint)
+                }
+                if let excerpt = source.excerpt, !excerpt.isEmpty {
+                    Text(excerpt)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.inkSoft)
+                        .lineLimit(3)
+                }
+                if source.verified == false, let note = source.note {
+                    Text(note).font(.system(size: 11)).italic().foregroundStyle(Color.inkFaint)
+                }
             }
         }
     }

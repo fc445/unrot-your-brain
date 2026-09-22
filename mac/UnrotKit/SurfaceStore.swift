@@ -55,6 +55,9 @@ public struct BucketSection: Sendable, Hashable, Identifiable {
 public struct MaterialRequest: Sendable, Hashable {
     public var busy: Bool = false
     public var error: String?
+    /// The refusal's HTTP status: 422 is "not grounded", 409 "would recurse".
+    /// Two different reasons, and the card says which.
+    public var status: Int?
 }
 
 @MainActor
@@ -211,7 +214,9 @@ public final class SurfaceStore {
             // A refusal -- 409 WouldRecurse, 422 NotGrounded -- is the gate
             // working. It stays on the card with the server's own wording
             // rather than replacing the page with an error state.
-            material[conceptId] = MaterialRequest(busy: false, error: error.message)
+            var status: Int?
+            if case .refused(let code, _) = error { status = code }
+            material[conceptId] = MaterialRequest(busy: false, error: error.message, status: status)
             if error.isTransport { failure = error.message }
         } catch {
             material[conceptId] = MaterialRequest(busy: false, error: "Could not make anything for that.")

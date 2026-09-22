@@ -68,6 +68,11 @@ final class CoreProcess {
         self.socketPath = home.appending(path: "run/core.sock").path
     }
 
+    #if DEBUG
+    /// For the snapshot run only: a status without a process behind it.
+    func showForSnapshot(_ status: Status) { self.status = status }
+    #endif
+
     // MARK: - Where things are
 
     /// `$UNROT_HOME`, else `~/.unrot`. The same order `capture/paths.home()`

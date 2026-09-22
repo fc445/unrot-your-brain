@@ -1,82 +1,109 @@
 //  EmptyStateView.swift
 //  UnrotMac
 //
-//  Six answers, five of which are calm.
+//  After the Silence artboard: silence has to read as a result.
 //
-//  Journey 3 is the reason this is a view and not a `Text("No results")`. "We
-//  looked and found nothing" has to be legible as a *good* result, and
-//  distinguishable from capture never running, from analysis never running,
-//  from too little history, and from the core being down. One empty list
-//  cannot say five things, so the server names which it is and this renders
-//  whichever it is told.
-//
-//  Only `failed` is red. A clean week is not a warning.
+//  Five states the server names, plus the one it cannot send. Each gets a pill
+//  saying which it is, the server's own headline and detail, and the one action
+//  it earns -- a button, never a terminal command. Only the failure is red.
 
 import SwiftUI
 import UnrotKit
 
 struct EmptyStateView: View {
+    struct Action {
+        let title: String
+        let primary: Bool
+        let run: () -> Void
+    }
+
     let state: SurfaceState
     let headline: String
     let detail: String
+    var analysing: (done: Int, total: Int)?
+    var action: Action?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: symbol)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(tint)
-                Text(headline)
-                    .font(.display(24))
-                    .foregroundStyle(Color.inkPrimary)
-            }
-
+            Pip(text: label, tint: tint, wash: wash)
+            Text(headline)
+                .font(.display(28))
+                .foregroundStyle(Color.inkPrimary)
             Text(detail)
-                .font(.system(size: 13))
+                .font(.system(size: 13.5))
                 .foregroundStyle(Color.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 520, alignment: .leading)
 
-            if let step = nextStep {
-                Text(step)
-                    .font(.system(size: 12, design: .monospaced))
+            if let why {
+                Text(why)
+                    .font(.system(size: 12))
                     .foregroundStyle(Color.inkSoft)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(12)
+                    .frame(maxWidth: 520, alignment: .leading)
                     .background(Color.sunk, in: RoundedRectangle(cornerRadius: 8))
-                    .textSelection(.enabled)
+            }
+
+            if let analysing {
+                ProgressView(value: Double(analysing.done), total: Double(max(analysing.total, 1))) {
+                    Text("Examining \(analysing.done + 1) of \(analysing.total)…").font(.system(size: 12))
+                }
+                .frame(maxWidth: 360)
+            } else if let action {
+                Button(action.title, action: action.run)
+                    .buttonStyle(UnrotButton(weight: action.primary ? .primary : .secondary))
+                    .padding(.top, 4)
             }
         }
-        .padding(22)
+        .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(wash, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.rule, lineWidth: 1))
-        .padding(.top, 20)
+        .background(Color.card, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(state == .failed ? Color.alarm.opacity(0.45) : Color.rule, lineWidth: 1)
+        )
     }
 
-    private var symbol: String {
+    private var label: String {
         switch state {
-        case .clean: "checkmark.seal"
-        case .coldStart: "hourglass"
-        case .notCaptured: "tray"
-        case .notAnalysed: "questionmark.folder"
-        case .failed: "exclamationmark.triangle"
-        default: "circle"
+        case .clean: "Clean"
+        case .coldStart: "Cold start"
+        case .notCaptured: "Not captured"
+        case .notAnalysed: "Not analysed"
+        case .failed: "Failed"
+        default: state.rawValue.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
 
-    /// The only red on the page, and only for the one state the server cannot
-    /// send. Everything else is the product working.
-    private var tint: Color { state == .failed ? .alarm : .inkSoft }
-    private var wash: Color { state == .failed ? .alarmBG : .card }
-
-    /// A command, where there is one worth running. The wording of *why*
-    /// belongs to the server; this is only the thing to type next.
-    private var nextStep: String? {
+    /// The canvas's aside for the two states whose meaning is easiest to miss.
+    private var why: String? {
         switch state {
-        case .notCaptured: "python -m unrot.capture ingest"
-        case .notAnalysed: "python -m unrot.resolver run"
-        case .failed: "python -m unrot.api --uds"
-        default: nil
+        case .clean:
+            "unrot records that it examined a session even when it flags nothing. Without that, a clean session and an unexamined one would look identical, and this sentence would be a guess."
+        case .coldStart:
+            "No action. Admitting there is too little history yet is the point."
+        default:
+            nil
+        }
+    }
+
+    /// Only the failure is red. Everything else is the product working.
+    private var tint: Color {
+        switch state {
+        case .failed: .alarm
+        case .clean: .bucketClosed
+        case .notAnalysed: .bucketOpen
+        default: .inkSoft
+        }
+    }
+
+    private var wash: Color {
+        switch state {
+        case .failed: .alarmBG
+        case .clean: .bucketClosedBG
+        case .notAnalysed: .bucketOpenBG
+        default: .sunk
         }
     }
 }

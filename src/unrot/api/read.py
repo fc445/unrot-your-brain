@@ -44,6 +44,9 @@ class Encounter:
     #: layer by construction -- S4 keeps raw local -- so the surface must read
     #: fine from the paraphrase alone.
     resolvable: bool = False
+    #: The repo the session was working in, by its last path component. Read
+    #: from the raw layer like `resolvable`, so absent anywhere that layer is.
+    repo: str | None = None
 
 
 @dataclass
@@ -145,9 +148,27 @@ def _sessions_on_disk(root) -> set[str]:
     return {p.stem for p in directory.glob("*.jsonl")}
 
 
+def _repos(root) -> dict[str, str]:
+    """session id -> the repo it ran in, from capture's own record of `cwd`."""
+    from ..capture import paths
+
+    path = paths.raw_db_path(paths.home(root))
+    if not path.exists():
+        return {}
+    raw = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        rows = raw.execute("SELECT session_id, cwd FROM raw_sessions WHERE cwd IS NOT NULL").fetchall()
+    except sqlite3.Error:
+        return {}
+    finally:
+        raw.close()
+    return {sid: cwd.rstrip("/").rsplit("/", 1)[-1] for sid, cwd in rows if cwd}
+
+
 def concepts(conn: sqlite3.Connection, root=None) -> list[Concept]:
     """Every concept that belongs on the surface, newest activity first."""
     retained = _sessions_on_disk(root)
+    repos = _repos(root)
 
     by_concept: dict[str, list[Encounter]] = {}
     for row in conn.execute(
@@ -166,6 +187,7 @@ def concepts(conn: sqlite3.Connection, root=None) -> list[Concept]:
                 line_start=row["line_start"],
                 line_end=row["line_end"],
                 resolvable=bool(row["session_id"]) and row["session_id"] in retained,
+                repo=repos.get(row["session_id"]) if row["session_id"] else None,
             )
         )
 
@@ -331,8 +353,10 @@ def surface(
             "not_analysed",
             f"{stats.sessions} sessions captured, none analysed",
             "Transcripts are on disk but nothing has looked at them yet."
-            " This is not a clean bill of health -- it is an empty one."
-            " Run the resolver to detect and file gaps.",
+            " This is not a clean bill of health -- it is an empty one.",
+            # No "run the resolver" here: the next step is each surface's to
+            # give. The web page shows a command; the Mac app has a button, and
+            # telling someone in a window to go and type a command is wrong.
         )
     elif counts["open"]:
         state, headline, detail = (
