@@ -23,6 +23,8 @@ struct UnrotMacApp: App {
                     .keyboardShortcut("0")
                 Button("Triage") { delegate.showTriage() }
                     .keyboardShortcut("j", modifiers: [.command, .option])
+                Button("Add a Gap…") { delegate.addGap() }
+                    .keyboardShortcut("n")
             }
             CommandGroup(after: .toolbar) {
                 Button("Reload") { Task { await delegate.store.load() } }
@@ -50,6 +52,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     private var statusItem: StatusItemController?
     private lazy var triage = TriagePanel(store: store, quick: quick)
+    private lazy var capture = CapturePanel(store: store)
+    private lazy var service = CaptureService { [weak self] selection, app in
+        self?.capture.open(selection: selection, from: app)
+    }
     private var triageKey: HotKey?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -58,8 +64,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             store: store,
             core: core,
             quick: quick,
-            actions: .init(openMain: { [weak self] in self?.showMain() })
+            actions: .init(
+                openMain: { [weak self] in self?.showMain() },
+                addGap: { [weak self] in self?.capture.openBlank() }
+            )
         )
+        NSApp.servicesProvider = service
+        // Re-reads the Services declarations, so "Add to unrot" appears without
+        // logging out after the app is installed or moved.
+        NSUpdateDynamicServices()
         // ⌥⌘J, system-wide. If another app already owns the chord this is
         // nil, and triage is still reachable from the app menu.
         triageKey = HotKey(keyCode: kVK_ANSI_J, modifiers: cmdKey | optionKey) { [weak self] in
@@ -74,6 +87,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func showMain() { main.show() }
 
     func showTriage() { triage.show() }
+
+    func addGap() { capture.openBlank() }
 
     func showStatusItem() { statusItem?.isVisible = true }
 

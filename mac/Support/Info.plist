@@ -29,5 +29,34 @@
 	     shipped app must fall through to the bundled core. -->
 	<key>UnrotDevRepoPath</key>
 	<string>$(UNROT_DEV_REPO_PATH)</string>
+	<!-- "Add to unrot" in the Services menu of any app with a text selection.
+	     macOS puts third-party items under Services, not at the top level of a
+	     context menu, and that is where this is. NSRequiredContext is present
+	     (and empty) so the item is enabled by default rather than hidden until
+	     someone finds it in System Settings.
+
+	     No NSKeyEquivalent. That key always implies Command and cannot express
+	     Option, so the design's Option-Command-U cannot be a shipped default;
+	     it is assigned in System Settings > Keyboard > Keyboard Shortcuts >
+	     Services, which the app links to. -->
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Add to unrot</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>addToUnrot</string>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.utf8-plain-text</string>
+				<string>NSStringPboardType</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
