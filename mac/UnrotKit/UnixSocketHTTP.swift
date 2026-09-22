@@ -32,6 +32,11 @@ public enum TransportError: Error, Sendable {
     /// Connected, but what came back was not an HTTP response we could read.
     case malformed(String)
     case timedOut
+
+    /// A condition worth another go. Never escapes `UnixSocketHTTP`: the retry
+    /// loop either succeeds or converts the last one into `unreachable`, so
+    /// callers still only ever see a failure that means something.
+    case retryable(String)
 }
 
 public struct UnixSocketHTTP: Sendable {
@@ -49,7 +54,14 @@ public struct UnixSocketHTTP: Sendable {
         body: Data? = nil,
         contentType: String = "application/json"
     ) async throws -> HTTPResponse {
-        let raw = try await exchange(request: encode(method: method, path: path, body: body, contentType: contentType))
+        let raw = try await exchange(
+            request: encode(method: method, path: path, body: body, contentType: contentType),
+            // GET is the only method here that can be repeated safely. Every
+            // POST appends an event, and two of them grade an answer twice or
+            // generate material twice -- a retry loop that does not know this
+            // turns a dropped connection into a duplicate in an append-only log.
+            idempotent: method == "GET"
+        )
         return try Self.parse(raw)
     }
 
@@ -75,8 +87,28 @@ public struct UnixSocketHTTP: Sendable {
 
     // MARK: - The connection
 
-    private func exchange(request: Data) async throws -> Data {
-        let exchange = Exchange(socketPath: socketPath)
+    /// How many times a retryable connection error is worth re-attempting.
+    ///
+    /// Three, with a few milliseconds between, because the condition being
+    /// retried is a momentary one -- see `Exchange.isMomentary`. Anything that
+    /// survives three attempts twenty milliseconds apart is not momentary.
+    private static let attempts = 3
+
+    private func exchange(request: Data, idempotent: Bool) async throws -> Data {
+        var last = "no attempt was made"
+        for attempt in 0..<Self.attempts {
+            do {
+                return try await connectOnce(request: request, idempotent: idempotent)
+            } catch TransportError.retryable(let detail) {
+                last = detail
+                try? await Task.sleep(for: .milliseconds(20 << attempt))
+            }
+        }
+        throw TransportError.unreachable(last)
+    }
+
+    private func connectOnce(request: Data, idempotent: Bool) async throws -> Data {
+        let exchange = Exchange(socketPath: socketPath, idempotent: idempotent)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 exchange.start(request: request, timeout: timeout, continuation: continuation)
@@ -164,14 +196,20 @@ public struct UnixSocketHTTP: Sendable {
 // `@Sendable` closures cannot be written at all. Methods on one lock-protected
 // object say the same thing and compile.
 
-private final class Exchange: @unchecked Sendable {
+final class Exchange: @unchecked Sendable {
     private let connection: NWConnection
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Data, Error>?
     private var buffer = Data()
     private var deadline: DispatchWorkItem?
+    private let idempotent: Bool
+    /// Whether the connection ever came up. Before it does, nothing was
+    /// written, so the server cannot have seen the request -- which is what
+    /// makes retrying safe regardless of method.
+    private var reachedReady = false
 
-    init(socketPath: String) {
+    init(socketPath: String, idempotent: Bool = true) {
+        self.idempotent = idempotent
         connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
     }
 
@@ -192,15 +230,18 @@ private final class Exchange: @unchecked Sendable {
             guard let self else { return }
             switch state {
             case .ready:
+                self.lock.lock()
+                self.reachedReady = true
+                self.lock.unlock()
                 self.send(request)
             case .failed(let error):
-                self.settle(.failure(TransportError.unreachable("\(error)")))
+                self.settle(.failure(self.classify(error)))
             case .waiting(let error):
                 // Network.framework retries `waiting` indefinitely by design.
                 // For a socket on this machine there is nothing to wait for: if
                 // it is not answering now it is because the core is not
                 // running, and the caller needs telling rather than hanging.
-                self.settle(.failure(TransportError.unreachable("\(error)")))
+                self.settle(.failure(self.classify(error)))
             default:
                 break
             }
@@ -214,11 +255,45 @@ private final class Exchange: @unchecked Sendable {
         connection.cancel()
     }
 
+    /// Which connection errors mean "not there", and which mean "try again".
+    ///
+    /// AF_UNIX has no network, so `ENETDOWN` cannot literally be true -- and
+    /// yet Network.framework raises it, reproducibly, under load and on rapid
+    /// reconnects. Reported as fatal it shows up as the core being down while
+    /// the core is plainly answering, which is the worst possible lie this
+    /// client can tell: `SurfaceState.failed` is derived from exactly this.
+    ///
+    /// The two codes that really do mean the socket is not there are `ENOENT`
+    /// (no file at the path) and `ECONNREFUSED` (a file, but nobody
+    /// listening). Those are never retried.
+    static func isMomentary(_ error: NWError) -> Bool {
+        if case .posix(let code) = error, code == .ENOENT || code == .ECONNREFUSED {
+            return false
+        }
+        return true
+    }
+
+    /// Whether this particular failure may be re-attempted.
+    ///
+    /// Two conditions, and both have to hold. The error has to be a momentary
+    /// one, and the request has to be repeatable -- which means either the
+    /// connection never came up (so nothing was sent and the server cannot
+    /// have acted) or the method is idempotent. A POST that failed after the
+    /// connection was live may well have been received and acted on, and
+    /// retrying it would append the event a second time.
+    private func classify(_ error: NWError) -> TransportError {
+        guard Self.isMomentary(error) else { return .unreachable("\(error)") }
+        lock.lock()
+        let started = reachedReady
+        lock.unlock()
+        return (!started || idempotent) ? .retryable("\(error)") : .unreachable("\(error)")
+    }
+
     private func send(_ request: Data) {
         connection.send(content: request, completion: .contentProcessed { [weak self] error in
             guard let self else { return }
             if let error {
-                return self.settle(.failure(TransportError.unreachable("\(error)")))
+                return self.settle(.failure(self.classify(error)))
             }
             self.receive()
         })
@@ -234,7 +309,7 @@ private final class Exchange: @unchecked Sendable {
                 self.lock.unlock()
             }
             if let error {
-                return self.settle(.failure(TransportError.unreachable("\(error)")))
+                return self.settle(.failure(self.classify(error)))
             }
             if isComplete {
                 // The server hung up, which with `Connection: close` is how a

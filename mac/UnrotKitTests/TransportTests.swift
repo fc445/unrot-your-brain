@@ -21,12 +21,23 @@ import Testing
 /// they are both wrong on.
 enum StubError: Error { case cannotListen(String) }
 
+final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func bump() { lock.lock(); count += 1; lock.unlock() }
+    var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+}
+
 final class StubServer: @unchecked Sendable {
     let path: String
     private let listener: Int32
     private var thread: Thread?
+    private let counter = Counter()
 
-    init(reply: Data, holdOpen: Bool = false) throws {
+    /// How many connections this stub has served.
+    var accepted: Int { counter.value }
+
+    init(reply: Data) throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: "unrot-test-\(UInt32.random(in: 0..<UInt32.max))")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -49,13 +60,22 @@ final class StubServer: @unchecked Sendable {
         }
 
         let descriptor = listener
+        // Serves until the listener is closed, rather than once. A one-shot
+        // stub cannot model a retry: the first attempt consumes the only
+        // accept, and the second hangs against a listening socket nobody is
+        // reading -- which presents as a timeout in the client rather than as
+        // the missing feature it is.
+        let counter = self.counter
         thread = Thread {
-            let client = accept(descriptor, nil, nil)
-            guard client >= 0 else { return }
-            var scratch = [UInt8](repeating: 0, count: 4096)
-            _ = read(client, &scratch, scratch.count)
-            reply.withUnsafeBytes { _ = write(client, $0.baseAddress, reply.count) }
-            if !holdOpen { close(client) }
+            while true {
+                let client = accept(descriptor, nil, nil)
+                guard client >= 0 else { return }
+                counter.bump()
+                var scratch = [UInt8](repeating: 0, count: 4096)
+                _ = read(client, &scratch, scratch.count)
+                reply.withUnsafeBytes { _ = write(client, $0.baseAddress, reply.count) }
+                close(client)
+            }
         }
         thread?.start()
     }
@@ -112,6 +132,40 @@ struct TransportTests {
             // core being down, which is what would blank the whole page.
             #expect(error.isTransport == false)
         }
+    }
+
+    @Test("ENETDOWN on a Unix socket is retried, not reported as a dead core")
+    func networkIsDownIsNotATruth() {
+        // AF_UNIX has no network. Network.framework raises ENETDOWN anyway,
+        // reproducibly, under load -- it was making this suite flaky roughly
+        // one run in thirty. Reported as fatal it renders as the core being
+        // down while the core is answering, and `SurfaceState.failed` is
+        // derived from precisely that.
+        #expect(Exchange.isMomentary(.posix(.ENETDOWN)))
+        #expect(Exchange.isMomentary(.posix(.EAGAIN)))
+
+        // The two that genuinely mean the socket is not there.
+        #expect(!Exchange.isMomentary(.posix(.ENOENT)))
+        #expect(!Exchange.isMomentary(.posix(.ECONNREFUSED)))
+    }
+
+    @Test("a POST is never retried once the connection was live")
+    func aWriteIsNeverRepeated() async throws {
+        // Every POST appends an event. A connection that dropped after the
+        // request went out may well have been received and acted on, so a
+        // retry would grade an answer twice, or generate material twice, or
+        // put a second judgment in an append-only log. The server closing
+        // without answering is the shape that failure takes.
+        let server = try StubServer(reply: Data())
+
+        let client = UnrotClient(socketPath: server.path, timeout: 3)
+        do {
+            _ = try await client.judge(encounterId: "e1", .confirm)
+            Issue.record("an empty reply should not decode as a judgment")
+        } catch let error as APIError {
+            #expect(error.isTransport)
+        }
+        #expect(server.accepted == 1, "the write was re-sent \(server.accepted) times")
     }
 
     @Test("a truncated response is a transport failure, never a partial answer")
