@@ -14,8 +14,7 @@ struct UnrotMacApp: App {
         // The window is AppKit's (see MainWindow). This scene exists for the
         // menu bar commands and, in phase 5, the settings panes.
         Settings {
-            Text("Settings arrive in phase 5.")
-                .padding(40)
+            SettingsView(notifier: delegate.notifier)
         }
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -51,6 +50,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
     private var statusItem: StatusItemController?
+    lazy var notifier = Notifier(
+        store: store,
+        quick: quick,
+        openMain: { [weak self] in self?.showMain() },
+        openTriage: { [weak self] in self?.showTriage() }
+    )
     private lazy var triage = TriagePanel(store: store, quick: quick)
     private lazy var capture = CapturePanel(store: store)
     private lazy var service = CaptureService { [weak self] selection, app in
@@ -69,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 addGap: { [weak self] in self?.capture.openBlank() }
             )
         )
+        notifier.start()
         NSApp.servicesProvider = service
         // Re-reads the Services declarations, so "Add to unrot" appears without
         // logging out after the app is installed or moved.
