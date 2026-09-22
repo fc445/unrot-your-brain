@@ -342,6 +342,88 @@ def test_dismissing_closes_it(client, home):
     assert body["concept"]["state"] == "known"
 
 
+def test_an_undo_puts_the_gap_back_and_keeps_the_mistake(client, home):
+    """Quick accept's undo is a third event, not a deletion of the first.
+
+    Deleting the confirmation would make a mis-key indistinguishable from never
+    having answered. Keeping both means the log shows the moment the user
+    changed their mind, and the surface shows the gap waiting again.
+    """
+    make_raw(home, 5)
+    conn = open_store(home)
+    encounter = seed_encounter(conn)
+    conn.close()
+
+    client.post(f"/api/encounters/{encounter}/confirm")
+    body = client.post(f"/api/encounters/{encounter}/retract").json()
+
+    assert body["concept"]["bucket"] == "open"
+    assert body["concept"]["encounters"][0]["judgment"] is None
+
+    conn = open_store(home)
+    kinds = [
+        row["event_type"]
+        for row in conn.execute(
+            "SELECT event_type FROM events WHERE subject_id = ? ORDER BY event_id",
+            (encounter,),
+        )
+    ]
+    conn.close()
+    assert kinds[-2:] == ["encounter_confirmed", "encounter_judgment_retracted"]
+
+
+def test_an_undo_is_ground_truth_like_any_other_judgment(home):
+    """`user`, so regeneration never replays over it."""
+    conn = open_store(home)
+    encounter = seed_encounter(conn)
+    append(conn, "encounter_dismissed", {"encounter_id": encounter})
+    append(conn, "encounter_judgment_retracted", {"encounter_id": encounter})
+    actor = conn.execute(
+        "SELECT actor FROM events WHERE event_type = 'encounter_judgment_retracted'"
+    ).fetchone()["actor"]
+    compile_state(conn)
+    judged = conn.execute(
+        "SELECT judgment FROM compiled_encounters WHERE encounter_id = ?", (encounter,)
+    ).fetchone()["judgment"]
+    conn.close()
+
+    assert actor == "user"
+    assert judged is None
+
+
+def test_the_latest_judgment_wins_across_an_undo(client, home):
+    """Confirm, undo, dismiss: the answer is the last thing said."""
+    make_raw(home, 5)
+    conn = open_store(home)
+    encounter = seed_encounter(conn)
+    conn.close()
+
+    client.post(f"/api/encounters/{encounter}/confirm")
+    client.post(f"/api/encounters/{encounter}/retract")
+    body = client.post(f"/api/encounters/{encounter}/dismiss").json()
+
+    assert body["concept"]["encounters"][0]["judgment"] == "dismissed"
+    assert body["concept"]["bucket"] == "closed"
+
+
+def test_undoing_nothing_is_refused_rather_than_recorded(client, home):
+    """A client sending this has lost track of what it just did."""
+    make_raw(home, 5)
+    conn = open_store(home)
+    encounter = seed_encounter(conn)
+    conn.close()
+
+    response = client.post(f"/api/encounters/{encounter}/retract")
+
+    assert response.status_code == 409
+    conn = open_store(home)
+    retractions = conn.execute(
+        "SELECT count(*) AS n FROM events WHERE event_type = 'encounter_judgment_retracted'"
+    ).fetchone()["n"]
+    conn.close()
+    assert retractions == 0
+
+
 def test_judgments_survive_a_recompile(client, home):
     """S5 in the one place a user would notice it failing.
 

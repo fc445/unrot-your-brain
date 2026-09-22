@@ -75,6 +75,16 @@ UI_DIST = _ui_dist()
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 
+#: What each judgment route appends. `retract` is the undo behind quick accept,
+#: and it is a third event rather than a delete of the first: the log keeps the
+#: mis-key and the correction, and the fold reads whichever came last.
+JUDGMENT_EVENTS = {
+    "confirm": "encounter_confirmed",
+    "dismiss": "encounter_dismissed",
+    "retract": "encounter_judgment_retracted",
+}
+
+
 def _home() -> str | None:
     """Resolved per request so $UNROT_HOME can be changed without a restart."""
     return None
@@ -207,24 +217,26 @@ def create_app() -> FastAPI:
         detector rather than something to throw away, which is why it is an event
         in the same log rather than a deletion.
         """
-        if judgment not in ("confirm", "dismiss"):
+        event = JUDGMENT_EVENTS.get(judgment)
+        if event is None:
             raise HTTPException(400, f"unknown judgment {judgment!r}")
 
         from ..store import append
 
         with stores() as (conn, raw):
-            exists = conn.execute(
-                "SELECT 1 FROM compiled_encounters WHERE encounter_id = ?",
+            current = conn.execute(
+                "SELECT judgment FROM compiled_encounters WHERE encounter_id = ?",
                 (encounter_id,),
             ).fetchone()
-            if not exists:
+            if not current:
                 raise HTTPException(404, f"no encounter {encounter_id!r}")
+            # An undo with nothing to undo is refused rather than recorded. It
+            # would be harmless to the fold and noise in the log, and a client
+            # sending one has lost track of what it just did.
+            if judgment == "retract" and current["judgment"] is None:
+                raise HTTPException(409, "nothing to undo: this has no judgment")
 
-            append(
-                conn,
-                "encounter_confirmed" if judgment == "confirm" else "encounter_dismissed",
-                {"encounter_id": encounter_id},
-            )
+            append(conn, event, {"encounter_id": encounter_id})
             compile_state(conn)
 
             found = read.concepts(conn, _home())

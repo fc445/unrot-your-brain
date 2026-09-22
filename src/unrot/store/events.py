@@ -81,6 +81,14 @@ SPECS: dict[str, EventSpec] = {
     "encounter_dismissed": EventSpec(
         "encounter_dismissed", USER, "encounter", ("encounter_id",)
     ),
+    # Withdrawing a judgment -- the undo behind quick accept. An event rather
+    # than a deletion, because deleting the confirmation would make a mis-key
+    # indistinguishable from never having answered, and the log would lose the
+    # one moment the user changed their mind. Both stay; the fold reads the
+    # latest. A `user` event, so regeneration never replays over it.
+    "encounter_judgment_retracted": EventSpec(
+        "encounter_judgment_retracted", USER, "encounter", ("encounter_id",)
+    ),
     "explanation_submitted": EventSpec(
         "explanation_submitted", USER, "concept",
         # prompt_text is stored verbatim, not just prompt_version. A version tag

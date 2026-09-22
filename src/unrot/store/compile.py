@@ -129,7 +129,7 @@ def compile_state(conn: sqlite3.Connection) -> CompileResult:
     # Keying by id instead of by position makes the fold order-independent where
     # it has to be, and order-dependent only where order is the answer (which of
     # two judgments is the latest).
-    judgments: dict[str, tuple[str, str]] = {}
+    judgments: dict[str, tuple[str | None, str | None]] = {}
     grades: dict[str, dict] = {}
     deliveries: dict[str, str] = {}
 
@@ -191,6 +191,13 @@ def compile_state(conn: sqlite3.Connection) -> CompileResult:
                 "confirmed" if etype == "encounter_confirmed" else "dismissed",
                 row["occurred_at"],
             )
+
+        elif etype == "encounter_judgment_retracted":
+            # Latest wins, and the latest is "no judgment". Held in the same
+            # deferred map rather than applied inline, for the same reason the
+            # judgments are: a replayed encounter sorts after the events that
+            # refer to it.
+            judgments[payload["encounter_id"]] = (None, None)
 
         elif etype == "explanation_submitted":
             explanations[row["event_id"]] = {
