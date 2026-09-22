@@ -43,13 +43,21 @@ enum Snapshots {
             }
             if ["full", "clean", "failed"].contains(name) {
                 await shoot("popover-\(name)") {
-                    TrayPopover(store: kit.store, core: kit.core, quick: kit.quick, openMain: {})
+                    TrayPopover(store: kit.store, core: kit.core, quick: kit.quick, watcher: kit.watcher, router: Router(), openMain: {})
                 }
             }
             guard name == "full" else { continue }
             await shootFull(kit)
         }
 
+        if let (_, socket) = homes.first(where: { $0.0 == "empty" }) {
+            let kit = await Kit(socket: socket, up: true)
+            for step in 1...3 {
+                await shoot("firstrun-\(step)", size: NSSize(width: 1040, height: 700)) {
+                    FirstRunView(onboarding: Onboarding(), watcher: kit.watcher, settings: ModelSettings(), step: step)
+                }
+            }
+        }
         await shoot("tray-glyphs", settle: .milliseconds(50)) { GlyphSheet() }
         exit(0)
     }
@@ -103,20 +111,20 @@ enum Snapshots {
         }
 
         let settings = ModelSettings()
-        await shoot("settings-watching", size: NSSize(width: 560, height: 520), settle: .milliseconds(900)) {
-            WatchingPane(watcher: kit.watcher)
+        await shoot("settings-capture", size: NSSize(width: 760, height: 620), settle: .milliseconds(900)) {
+            CapturePane(watcher: kit.watcher).frame(width: 760, height: 620)
         }
-        await shoot("settings-model", size: NSSize(width: 560, height: 620), settle: .milliseconds(900)) {
-            ModelPane(settings: settings, client: kit.client, restartCore: {})
+        let regenerator = Regenerator(client: kit.client, store: store)
+        await shoot("settings-model", size: NSSize(width: 760, height: 620), settle: .milliseconds(1200)) {
+            ModelPane(settings: settings, client: kit.client, watcher: kit.watcher, regenerator: regenerator,
+                      restartCore: {}, showPlan: {})
+                .frame(width: 760, height: 620)
         }
-        await shoot("settings-notifications", size: NSSize(width: 560, height: 420)) {
+        await shoot("settings-notifications", size: NSSize(width: 760, height: 420)) {
             NotificationsPane(notifier: Notifier(store: store, quick: kit.quick, openMain: {}, openTriage: {}))
         }
-        await shoot("settings-capture", size: NSSize(width: 560, height: 420), settle: .milliseconds(600)) {
-            CapturePane()
-        }
-        await shoot("settings-regenerate", size: NSSize(width: 560, height: 520), settle: .milliseconds(900)) {
-            RegeneratePane(regenerator: Regenerator(client: kit.client, store: store))
+        await shoot("settings-advanced", size: NSSize(width: 760, height: 560), settle: .milliseconds(900)) {
+            RegeneratePane(regenerator: regenerator).frame(width: 760, height: 560)
         }
     }
 
@@ -130,7 +138,10 @@ enum Snapshots {
         @ViewBuilder _ content: () -> V
     ) async {
         for (suffix, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-            let hosting = NSHostingView(rootView: content())
+            // A sized shot is pinned to its size, as a real window pins its
+            // content; views that fill their window would otherwise grow to
+            // whatever the offscreen window lets them.
+            let hosting = NSHostingView(rootView: content().frame(width: size?.width, height: size?.height))
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: size ?? NSSize(width: 400, height: 300)),
                 styleMask: [.borderless], backing: .buffered, defer: false

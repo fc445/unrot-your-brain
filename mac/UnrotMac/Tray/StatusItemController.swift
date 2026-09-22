@@ -25,6 +25,7 @@ final class StatusItemController: NSObject {
 
     /// What the right-click menu and the popover can ask the app to do.
     struct Actions {
+        var router: Router
         var openMain: () -> Void
         var addGap: (() -> Void)?
     }
@@ -65,7 +66,9 @@ final class StatusItemController: NSObject {
         popover.behavior = .transient
         popover.animates = false
         popover.contentViewController = NSHostingController(
-            rootView: TrayPopover(store: store, core: core, quick: quick) { [weak self] in
+            rootView: TrayPopover(
+                store: store, core: core, quick: quick, watcher: watcher, router: actions.router
+            ) { [weak self] in
                 self?.popover.performClose(nil)
                 self?.actions.openMain()
             }

@@ -310,6 +310,11 @@ def capture_stats(raw_conn: sqlite3.Connection | None, conn: sqlite3.Connection)
     return Capture(row["n"], turns["n"], turns["last"], analysed, clean)
 
 
+def _count(n: int, noun: str) -> str:
+    """"1 session", "3 sessions". This is copy both surfaces show as written."""
+    return f"{n} {noun}" + ("" if n == 1 else "s")
+
+
 #: Below this, a quiet list is more likely to mean "we have barely looked" than
 #: "you are doing well" -- journey 7's honest cold start.
 COLD_START_SESSIONS = 3
@@ -351,9 +356,9 @@ def surface(
     elif events == 0:
         state, headline, detail = (
             "not_analysed",
-            f"{stats.sessions} sessions captured, none analysed",
+            f"{_count(stats.sessions, 'session')} captured, none analysed",
             "Transcripts are on disk but nothing has looked at them yet."
-            " This is not a clean bill of health -- it is an empty one.",
+            " This is not a clean bill of health \u2014 it is an empty one.",
             # No "run the resolver" here: the next step is each surface's to
             # give. The web page shows a command; the Mac app has a button, and
             # telling someone in a window to go and type a command is wrong.
@@ -369,8 +374,8 @@ def surface(
         state, headline, detail = (
             "cold_start",
             "Not enough history yet",
-            f"Only {stats.sessions_analysed} session(s) analysed so far. Too little"
-            " to say much either way -- come back after a few more.",
+            f"Only {_count(stats.sessions_analysed, 'session')} analysed so far. Too little"
+            " to say much either way \u2014 come back after a few more.",
         )
     else:
         # Now sayable, and only because `session_analysed` is recorded for the
@@ -379,7 +384,7 @@ def surface(
         state, headline, detail = (
             "clean",
             "Nothing waiting on you",
-            f"{stats.sessions_analysed} session(s) examined, {stats.sessions_clean}"
+            f"{_count(stats.sessions_analysed, 'session')} examined, {stats.sessions_clean}"
             " of them with nothing worth flagging. Everything else found has been"
             " dealt with. Silence here means we looked.",
         )

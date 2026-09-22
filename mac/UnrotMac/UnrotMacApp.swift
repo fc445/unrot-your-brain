@@ -54,12 +54,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var watcher = Watcher(client: client, store: store, core: core)
     lazy var regenerator = Regenerator(client: client, store: store)
     let router = Router()
+    let onboarding = Onboarding()
 
     private lazy var main = MainWindow { [unowned self] in
         AnyView(
             RootView(
                 core: core, store: store, quick: quick, watcher: watcher, router: router,
-                addGap: { [unowned self] in self.addGap() }
+                addGap: { [unowned self] in self.addGap() },
+                onboarding: onboarding, modelSettings: model
             )
                 .frame(minWidth: 820, minHeight: 520)
         )
@@ -95,12 +97,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             quick: quick,
             watcher: watcher,
             actions: .init(
+                router: router,
                 openMain: { [weak self] in self?.showMain() },
                 addGap: { [weak self] in self?.capture.openBlank() }
             )
         )
         notifier.start()
-        watcher.start()
+        // Nothing is captured until the first run has said what will be read
+        // and the user has chosen to start.
+        if onboarding.done {
+            watcher.start()
+        } else {
+            onboarding.onFinish = { [weak self] in
+                self?.core.restart()   // pick up a key or endpoint chosen during setup
+                self?.watcher.start()
+            }
+        }
         NSApp.servicesProvider = service
         // Re-reads the Services declarations, so "Add to unrot" appears without
         // logging out after the app is installed or moved.

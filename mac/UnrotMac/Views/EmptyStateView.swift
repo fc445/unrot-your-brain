@@ -82,7 +82,7 @@ struct EmptyStateView: View {
         case .clean:
             "unrot records that it examined a session even when it flags nothing. Without that, a clean session and an unexamined one would look identical, and this sentence would be a guess."
         case .coldStart:
-            "No action. Admitting there is too little history yet is the point."
+            "Nothing to do here. unrot would rather say it has seen too little than read a quiet week as a good one."
         default:
             nil
         }

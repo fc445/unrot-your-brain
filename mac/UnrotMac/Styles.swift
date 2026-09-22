@@ -22,6 +22,23 @@ struct UnrotButton: ButtonStyle {
     var fill = false
 
     func makeBody(configuration: Configuration) -> some View {
+        Rendered(configuration: configuration, weight: weight, fill: fill)
+    }
+
+    /// A view rather than a modifier chain, because only a view can read
+    /// `isEnabled` -- and a disabled button that looks enabled is a button
+    /// people click and conclude is broken.
+    private struct Rendered: View {
+        let configuration: Configuration
+        let weight: Weight
+        let fill: Bool
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            label.opacity(isEnabled ? 1 : 0.4)
+        }
+
+        private var label: some View {
         configuration.label
             .font(.system(size: 13, weight: .semibold))
             .padding(.horizontal, 14)
@@ -38,6 +55,7 @@ struct UnrotButton: ButtonStyle {
             )
             .opacity(configuration.isPressed ? 0.75 : 1)
             .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
     }
 }
 

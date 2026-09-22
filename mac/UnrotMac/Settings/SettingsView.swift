@@ -1,8 +1,8 @@
 //  SettingsView.swift
 //  UnrotMac
 //
-//  The settings window. Phase 5 adds the capture folder, the model and the key;
-//  this is what phases 4 and 4b need.
+//  After the Capture and Model artboards: settings as a form with labels on the
+//  left, and the privacy story told beside the choice that changes it.
 
 import ServiceManagement
 import SwiftUI
@@ -16,120 +16,409 @@ struct SettingsView: View {
     let client: UnrotClient
     let restartCore: () -> Void
 
+    enum Tab: Hashable { case capture, model, notifications, advanced }
+    @State private var tab: Tab = .capture
+
     var body: some View {
-        TabView {
-            WatchingPane(watcher: watcher)
-                .tabItem { Label("Watching", systemImage: "eye") }
-            ModelPane(settings: model, client: client, restartCore: restartCore)
-                .tabItem { Label("Model", systemImage: "cpu") }
+        TabView(selection: $tab) {
+            CapturePane(watcher: watcher)
+                .tabItem { Text("Capture") }.tag(Tab.capture)
+            ModelPane(settings: model, client: client, watcher: watcher, regenerator: regenerator,
+                      restartCore: restartCore, showPlan: { tab = .advanced })
+                .tabItem { Text("Model") }.tag(Tab.model)
             NotificationsPane(notifier: notifier)
-                .tabItem { Label("Notifications", systemImage: "bell") }
-            CapturePane()
-                .tabItem { Label("Capture", systemImage: "text.cursor") }
+                .tabItem { Text("Notifications") }.tag(Tab.notifications)
             RegeneratePane(regenerator: regenerator)
-                .tabItem { Label("Regenerate", systemImage: "arrow.triangle.2.circlepath") }
+                .tabItem { Text("Advanced") }.tag(Tab.advanced)
         }
-        .frame(width: 560, height: 520)
+        .frame(width: 760, height: 620)
     }
 }
+
+// MARK: - Layout
+
+/// A labelled row: the label right-aligned in a fixed column, as the canvas
+/// lays settings out, with an optional caption under the control.
+struct SettingRow<Control: View>: View {
+    let label: String
+    var caption: String? = nil
+    @ViewBuilder let control: Control
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            Text(label)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 170, alignment: .trailing)
+            VStack(alignment: .leading, spacing: 5) {
+                control
+                if let caption {
+                    Text(caption)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Color.inkFaint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+struct Field: ViewModifier {
+    var mono = false
+    func body(content: Content) -> some View {
+        content
+            .textFieldStyle(.plain)
+            .font(.system(size: 13, design: mono ? .monospaced : .default))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Color.card, in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.ruleStrong, lineWidth: 1))
+    }
+}
+
+private struct LockFooter: View {
+    let text: String
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "lock").font(.system(size: 11))
+            Text(text).font(.system(size: 12))
+        }
+        .foregroundStyle(Color.inkSoft)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.sunk, in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+// MARK: - Capture
+
+struct CapturePane: View {
+    @Bindable var watcher: Watcher
+    @State private var retained: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                SettingRow(label: "Transcript folder",
+                           caption: "Read-only, always. unrot lists and reads these files; nothing in it ever writes to ~/.claude.") {
+                    Text("~/.claude/projects").modifier(Field(mono: true)).frame(maxWidth: 360, alignment: .leading)
+                }
+                SettingRow(label: "Watch for new sessions",
+                           caption: "FSEvents, not polling. Runs whether or not the window is open, and costs nothing while you work.") {
+                    Toggle(watcher.paused ? "Off" : "On", isOn: Binding(get: { !watcher.paused }, set: { watcher.paused = !$0 }))
+                        .toggleStyle(.switch).tint(Color.watching)
+                }
+                SettingRow(label: "Take a session once quiet for",
+                           caption: "The detector judges what you said after the term was used. While a session is live that turn does not exist yet — and re-reading a growing transcript costs tokens every time.") {
+                    HStack(spacing: 8) {
+                        TextField("", value: $watcher.quietMinutes, format: .number)
+                            .modifier(Field()).frame(width: 60)
+                        Stepper("minutes", value: $watcher.quietMinutes, in: 2...60).labelsHidden()
+                        Text("minutes").font(.system(size: 13))
+                    }
+                }
+                SettingRow(label: "") {
+                    Label("Never takes a project while Claude Code is still running in it", systemImage: "checkmark.square.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.inkPrimary)
+                }
+                SettingRow(label: "Analyse automatically",
+                           caption: "Analysis sends a session's windows to your model and costs what that costs. Off, captured sessions wait for Analyse now. On, it applies only to sessions that finish after you switch it on — anything already waiting still waits for you.") {
+                    Toggle(watcher.autoAnalyse ? "On" : "Off", isOn: $watcher.autoAnalyse)
+                        .toggleStyle(.switch).tint(Color.watching)
+                        .disabled(watcher.paused)
+                }
+                SettingRow(label: "Queue") { QueueCard(watcher: watcher) }
+                SettingRow(label: "Retained copies",
+                           caption: "Kept so the moment view can replay what was said, and so a better detector can re-read your history.") {
+                    HStack(spacing: 10) {
+                        Text("\(retained ?? "…") in ~/.unrot/raw").font(.system(size: 13))
+                        Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([Self.raw]) }
+                            .buttonStyle(UnrotButton())
+                    }
+                }
+                SettingRow(label: "From any app",
+                           caption: "macOS lists third-party items under Services, not at the top of the right-click menu. Its shortcut belongs to the service — ⌥⌘U is the suggested one — so unrot never needs Accessibility permission.") {
+                    HStack(spacing: 10) {
+                        Text("Select text › right-click › Services › Add to unrot").font(.system(size: 13))
+                        Button("Set a shortcut…") {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                        .buttonStyle(UnrotButton())
+                    }
+                }
+                SettingRow(label: "At login") { OpenAtLogin() }
+                LockFooter(text: "Everything under raw/ never syncs, never uploads, never leaves this machine. The sync boundary is a path prefix, not a setting you have to trust.")
+            }
+            .padding(24)
+        }
+        .background(Color.paper)
+        .task {
+            retained = await Self.size()
+            await watcher.refreshQueue()
+        }
+    }
+
+    nonisolated static var raw: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appending(path: ".unrot/raw")
+    }
+
+    /// Measured off the main thread: a year of transcripts is a lot of files.
+    static func size() async -> String {
+        await Task.detached(priority: .utility) { measure() }.value
+    }
+
+    nonisolated private static func measure() -> String {
+        var total: Int64 = 0
+        if let files = FileManager.default.enumerator(at: raw, includingPropertiesForKeys: [.fileSizeKey]) {
+            for case let url as URL in files {
+                total += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            }
+        }
+        return ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
+    }
+}
+
+private struct QueueCard: View {
+    let watcher: Watcher
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(summary).font(.system(size: 13, weight: .semibold))
+                Spacer()
+                if watcher.isRunning {
+                    Button("Stop") { watcher.stopAnalysing() }.buttonStyle(UnrotButton())
+                } else {
+                    Button(watcher.paused ? "Resume" : "Pause") { watcher.paused.toggle() }.buttonStyle(UnrotButton())
+                    Button("Analyse now") { watcher.analyseNow() }
+                        .buttonStyle(UnrotButton(weight: .primary))
+                        .disabled(!watcher.canAnalyse || watcher.pendingCount == 0)
+                }
+            }
+            if let progress = watcher.progress {
+                ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1)))
+                    .tint(Color.bucketOpen)
+            }
+            if let pending = watcher.queue?.pending, !pending.isEmpty {
+                Text(pending.prefix(3).map { "\($0.repo ?? $0.sessionId.prefix(8).description) · \($0.humanTurns) turns" }.joined(separator: "   "))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Color.inkFaint)
+                    .lineLimit(1)
+            }
+            if !watcher.canAnalyse && watcher.pendingCount > 0 {
+                Text("No model is configured, so these can't be analysed yet. Add one under Model.")
+                    .font(.system(size: 11.5)).foregroundStyle(Color.inkSoft)
+            }
+            if let error = watcher.lastError {
+                Text(error).font(.system(size: 11.5)).foregroundStyle(Color.inkSoft)
+            }
+        }
+        .padding(14)
+        .background(Color.card, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.rule, lineWidth: 1))
+    }
+
+    private var summary: String {
+        let n = watcher.pendingCount
+        if let progress = watcher.progress { return "Analysing \(progress.done + 1) of \(progress.total)" }
+        if n == 0 { return "Nothing waiting" }
+        return "\(n) session\(n == 1 ? "" : "s") waiting" + (watcher.paused ? " · paused" : "")
+    }
+}
+
+// MARK: - Model
 
 struct ModelPane: View {
     @Bindable var settings: ModelSettings
     let client: UnrotClient
+    let watcher: Watcher
+    let regenerator: Regenerator
     let restartCore: () -> Void
+    let showPlan: () -> Void
 
     @State private var key = ""
     @State private var inEffect: CoreConfig?
+    @State private var confirming = false
 
     var body: some View {
-        Form {
-            Section {
-                Picker("Endpoint", selection: $settings.endpoint) {
-                    ForEach(ModelSettings.Endpoint.allCases) { Text($0.label).tag($0) }
+        VStack(spacing: 18) {
+            HStack(alignment: .top, spacing: 22) {
+                choices.frame(maxWidth: .infinity)
+                leaves.frame(width: 320)
+            }
+            Spacer(minLength: 0)
+            if settings.changed {
+                banner(
+                    title: "Changes apply when the core restarts.",
+                    text: "The core reads its model settings when it starts.",
+                    primary: ("Restart the core", {
+                        restartCore()
+                        settings.applied()
+                        Task { try? await Task.sleep(for: .seconds(3)); inEffect = try? await client.config() }
+                    }),
+                    secondary: nil
+                )
+            } else if let previously, previously > 0, let plan = regenerator.plan {
+                banner(
+                    title: "The detector changed. Re-examine your history?",
+                    text: "\(previously) session\(previously == 1 ? "" : "s") were analysed by an older detector. \(plan.protected) of your judgments are protected and replayed untouched. Improving the engine improves the whole history, not only what comes next.",
+                    primary: ("Re-examine", { confirming = true }),
+                    secondary: ("Show the plan", showPlan)
+                )
+            }
+        }
+        .padding(24)
+        .background(Color.paper)
+        .task {
+            inEffect = try? await client.config()
+            await regenerator.refresh()
+        }
+        .confirmationDialog("Re-examine \(regenerator.plan?.toRun.count ?? 0) sessions?", isPresented: $confirming) {
+            Button("Re-examine") { regenerator.start() }
+        } message: {
+            Text("This makes model calls for each session, and costs what that costs. It stops between any two sessions, and your judgments are not touched.")
+        }
+    }
+
+    /// Sessions a regeneration would re-run that were already analysed once --
+    /// i.e. by a detector that has since changed. The never-analysed ones are
+    /// the queue's business, not this banner's.
+    private var previously: Int? {
+        guard let plan = regenerator.plan else { return nil }
+        let never = watcher.queue?.pending.filter { $0.reason == "never" }.count ?? 0
+        return max(0, plan.toRun.count - never)
+    }
+
+    private var choices: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Where analysis runs").font(.system(size: 13, weight: .semibold))
+                Picker("", selection: $settings.endpoint) {
+                    Text("OpenRouter").tag(ModelSettings.Endpoint.hosted)
+                    Text("On this Mac").tag(ModelSettings.Endpoint.local)
+                    Text("Custom endpoint").tag(ModelSettings.Endpoint.custom)
                 }
-                .pickerStyle(.radioGroup)
-                switch settings.endpoint {
-                case .hosted:
-                    EmptyView()
-                case .local:
-                    TextField("Server URL", text: $settings.localURL)
-                case .custom:
-                    TextField("Server URL", text: $settings.customURL, prompt: Text("https://…/v1"))
-                }
-                TextField("Model", text: $settings.model, prompt: Text("the core's default"))
-            } footer: {
+                .pickerStyle(.segmented)
+                .labelsHidden()
                 if settings.endpoint == .local {
-                    Text("Any OpenAI-compatible server on this Mac — Ollama, LM Studio, llama.cpp. Nothing leaves the machine.")
-                        .font(.system(size: 11)).foregroundStyle(Color.inkFaint)
+                    TextField("", text: $settings.localURL, prompt: Text("http://localhost:11434/v1").foregroundStyle(Color.inkFaint)).modifier(Field(mono: true))
+                    Text("Any OpenAI-compatible server on this Mac — Ollama, LM Studio, llama.cpp.")
+                        .font(.system(size: 11.5)).foregroundStyle(Color.inkFaint)
+                } else if settings.endpoint == .custom {
+                    TextField("", text: $settings.customURL, prompt: Text("https://…/v1").foregroundStyle(Color.inkFaint)).modifier(Field(mono: true))
                 }
             }
-
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Model").font(.system(size: 13, weight: .semibold))
+                TextField("", text: $settings.model, prompt: Text(inEffect.map { "default: \($0.model)" } ?? "the core's default").foregroundStyle(Color.inkFaint))
+                    .modifier(Field(mono: true))
+                Text("Used by the detector, the resolver and material. The detector reads transcript windows, so this line is where the bill actually lives. Leave it empty for the core's default.")
+                    .font(.system(size: 11.5)).foregroundStyle(Color.inkFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if settings.endpoint != .local {
-                Section("API key") {
-                    LabeledContent("Status") {
-                        Text(settings.hasKey ? "Stored in your login Keychain" : "Not set")
-                            .foregroundStyle(settings.hasKey ? Color.inkSoft : Color.inkFaint)
-                    }
-                    HStack {
-                        SecureField("Paste a key", text: $key)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("API key").font(.system(size: 13, weight: .semibold))
+                    HStack(spacing: 8) {
+                        SecureField("", text: $key, prompt: Text(settings.hasKey ? "A key is stored — paste to replace it" : "Paste your OpenRouter key").foregroundStyle(Color.inkFaint))
+                            .modifier(Field(mono: true))
                         Button("Save") { settings.saveKey(key); key = "" }
+                            .buttonStyle(UnrotButton(weight: .primary))
                             .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty)
                         if settings.hasKey {
-                            Button("Remove", role: .destructive) { settings.removeKey() }
+                            Button("Remove") { settings.removeKey() }.buttonStyle(UnrotButton())
                         }
                     }
+                    Text("Kept in the login Keychain, not in a .env beside your code. A key set in your shell still wins.")
+                        .font(.system(size: 11.5)).foregroundStyle(Color.inkFaint)
                 }
             }
-
-            Section {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Grader").font(.system(size: 13, weight: .semibold))
+                    Text("A classifier, separate from the model above. It returns a distribution, which is what keeps the listed/causal line movable later.")
+                        .font(.system(size: 11.5)).foregroundStyle(Color.inkSoft)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
                 if let inEffect {
-                    LabeledContent("Model", value: inEffect.model)
-                    LabeledContent("Endpoint", value: inEffect.baseUrl)
-                    LabeledContent("Key", value: inEffect.keySet ? "set" : "not set")
-                    LabeledContent("Grading", value: inEffect.grader == "classifier" ? "by model" : "keyword only — no model")
+                    // "configured", not "reachable": nothing here probes it, and
+                    // a status should not claim a check that never ran.
+                    Pip(text: inEffect.grader == "classifier" ? "configured" : "keyword only",
+                        tint: inEffect.grader == "classifier" ? .bucketClosed : .bucketOpen,
+                        wash: inEffect.grader == "classifier" ? .bucketClosedBG : .bucketOpenBG)
+                }
+            }
+            .padding(12)
+            .background(Color.card, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.rule, lineWidth: 1))
+        }
+    }
+
+    /// What leaves, told beside the choice that changes it. The list comes from
+    /// the core -- it lives next to the code that makes the calls.
+    private var leaves: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("What leaves this Mac, right now").font(.system(size: 13.5, weight: .semibold))
+            if let inEffect {
+                if inEffect.leavesThisMac.isEmpty {
+                    Eyebrow(text: "Nothing — every call stays on this Mac", tint: .bucketClosed)
                 } else {
-                    Text("The core isn't answering.").foregroundStyle(Color.inkFaint)
-                }
-                if settings.changed {
-                    HStack {
-                        Text("Changes apply when the core restarts.")
-                            .font(.system(size: 11)).foregroundStyle(Color.inkFaint)
-                        Spacer()
-                        Button("Restart the Core") {
-                            restartCore()
-                            settings.applied()
-                            Task {
-                                try? await Task.sleep(for: .seconds(3))
-                                inEffect = try? await client.config()
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                }
-            } header: {
-                Text("In effect")
-            } footer: {
-                Text("Read back from the core, because an environment variable set outside the app wins over these settings — the same order `python -m unrot.resolver env` shows.")
-                    .font(.system(size: 11)).foregroundStyle(Color.inkFaint)
-            }
-
-            Section("What leaves this Mac") {
-                if let inEffect {
-                    if inEffect.leavesThisMac.isEmpty {
-                        Text("Nothing. Every model call goes to this Mac.")
-                            .font(.system(size: 12))
-                    } else {
-                        ForEach(inEffect.leavesThisMac, id: \.self) { line in
+                    Eyebrow(text: "Sent to \(host(inEffect.baseUrl))", tint: .bucketOpen)
+                    ForEach(inEffect.leavesThisMac, id: \.self) { line in
+                        HStack(alignment: .firstTextBaseline, spacing: 7) {
+                            Image(systemName: "arrow.right").font(.system(size: 10)).foregroundStyle(Color.bucketOpen)
                             Text(line).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
                         }
                     }
-                    Text("Raw transcripts never leave: everything under ~/.unrot/raw stays on this machine.")
-                        .font(.system(size: 11)).foregroundStyle(Color.inkFaint)
+                }
+            } else {
+                Text("The core isn't answering.").font(.system(size: 12)).foregroundStyle(Color.inkFaint)
+            }
+            Divider().padding(.vertical, 2)
+            Eyebrow(text: "Never sent, on any setting", tint: .bucketClosed)
+            ForEach(["The retained transcript archive under raw/.",
+                     "Your confirmations, dismissals and answers, as a record.",
+                     "The event log itself, or anything compiled from it."], id: \.self) { line in
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    Image(systemName: "lock").font(.system(size: 10)).foregroundStyle(Color.bucketClosed)
+                    Text(line).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
                 }
             }
+            Text("Switch to On this Mac and the top list empties. That is the whole privacy story — one setting, not a rewrite.")
+                .font(.system(size: 11.5)).foregroundStyle(Color.inkFaint)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 4)
         }
-        .formStyle(.grouped)
-        .task { inEffect = try? await client.config() }
+        .padding(16)
+        .background(Color.card, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.rule, lineWidth: 1))
+    }
+
+    private func host(_ url: String) -> String {
+        let name = URL(string: url)?.host() ?? url
+        return name.contains("openrouter") ? "OpenRouter" : name
+    }
+
+    private func banner(
+        title: String, text: String,
+        primary: (String, () -> Void), secondary: (String, () -> Void)?
+    ) -> some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Color.bucketLearning)
+                Text(text).font(.system(size: 12)).foregroundStyle(Color.inkSoft)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            if let secondary { Button(secondary.0, action: secondary.1).buttonStyle(UnrotButton()) }
+            Button(primary.0, action: primary.1).buttonStyle(UnrotButton(weight: .primary))
+        }
+        .padding(16)
+        .background(Color.bucketLearningBG, in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -209,85 +498,6 @@ struct RegeneratePane: View {
     }
 }
 
-struct WatchingPane: View {
-    @Bindable var watcher: Watcher
-
-    var body: some View {
-        Form {
-            Section {
-                OpenAtLogin()
-                Toggle("Capture sessions when they finish", isOn: Binding(
-                    get: { !watcher.paused },
-                    set: { watcher.paused = !$0 }
-                ))
-                Stepper(value: $watcher.quietMinutes, in: 2...60) {
-                    Text("Wait \(watcher.quietMinutes) minutes after a session goes quiet")
-                }
-                .disabled(watcher.paused)
-            } footer: {
-                Text("""
-                    Capture copies a transcript Claude Code already wrote to disk into \
-                    ~/.unrot/raw, which never syncs. No model is called. A session is only \
-                    taken once it and everything else in its project have been quiet this \
-                    long — the detector judges your next turn, and mid-session there isn't one.
-                    """)
-                .font(.system(size: 11))
-                .foregroundStyle(Color.inkFaint)
-            }
-
-            Section {
-                Toggle("Analyse finished sessions automatically", isOn: $watcher.autoAnalyse)
-                    .disabled(watcher.paused)
-            } footer: {
-                Text("""
-                    Analysis sends a session's turns to your model endpoint, one call per \
-                    stretch of conversation, and costs what that costs. Off, sessions are \
-                    captured and wait for Analyse now. On, it applies only to sessions that \
-                    finish after you switch it on — anything already waiting still waits \
-                    for you.
-                    """)
-                .font(.system(size: 11))
-                .foregroundStyle(Color.inkFaint)
-            }
-
-            Section("Waiting to be analysed") {
-                if let pending = watcher.queue?.pending, !pending.isEmpty {
-                    ForEach(pending.prefix(8)) { session in
-                        LabeledContent(session.repo ?? session.sessionId) {
-                            Text("\(session.humanTurns) turns\(session.reason == "grown" ? ", continued" : "")")
-                                .foregroundStyle(Color.inkFaint)
-                        }
-                        .font(.system(size: 12))
-                    }
-                    if pending.count > 8 {
-                        Text("and \(pending.count - 8) more")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.inkFaint)
-                    }
-                    HStack {
-                        if let error = watcher.lastError {
-                            Text(error).font(.system(size: 11)).foregroundStyle(Color.inkSoft)
-                        }
-                        Spacer()
-                        if watcher.isRunning {
-                            Button("Stop") { watcher.stopAnalysing() }
-                        } else {
-                            Button("Analyse \(pending.count) now") { watcher.analyseNow() }
-                                .disabled(!watcher.canAnalyse)
-                        }
-                    }
-                } else {
-                    Text("Nothing waiting.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color.inkFaint)
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .task { await watcher.refreshQueue() }
-    }
-}
-
 struct NotificationsPane: View {
     @Bindable var notifier: Notifier
 
@@ -333,73 +543,6 @@ struct NotificationsPane: View {
             return "\(twelve) \(h < 12 ? "am" : "pm")"
         }
         return "\(label(hour)) and \(label(hour + 1))"
-    }
-}
-
-struct CapturePane: View {
-    @State private var retained: String?
-
-    var body: some View {
-        Form {
-            Section {
-                LabeledContent("Retained copies") {
-                    HStack {
-                        Text(retained ?? "…").foregroundStyle(Color.inkSoft)
-                        Button("Reveal in Finder") {
-                            NSWorkspace.shared.activateFileViewerSelecting([Self.raw])
-                        }
-                    }
-                }
-            } footer: {
-                Text("Everything under ~/.unrot/raw never syncs, never uploads, and never leaves this Mac. unrot keeps its own copy of each transcript so a moment can still be replayed after Claude Code rotates the original away.")
-                    .font(.system(size: 11)).foregroundStyle(Color.inkFaint)
-            }
-
-            Section {
-                LabeledContent("From any app") {
-                    Text("Select text › right-click › Services › Add to unrot")
-                        .font(.system(size: 12))
-                }
-                LabeledContent("Keyboard shortcut") {
-                    Button("Set in System Settings…") {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                }
-            } footer: {
-                Text("""
-                    macOS lists third-party items under Services rather than at the top of \
-                    the right-click menu. The shortcut belongs to the service, so it is set \
-                    under Keyboard Shortcuts › Services — ⌥⌘U is the suggested one. That \
-                    way unrot never needs Accessibility permission, and receives only the \
-                    text you selected.
-                    """)
-                .font(.system(size: 11))
-                .foregroundStyle(Color.inkFaint)
-            }
-        }
-        .formStyle(.grouped)
-        .task { retained = await Self.size() }
-    }
-
-    nonisolated static var raw: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appending(path: ".unrot/raw")
-    }
-
-    /// Measured off the main thread: a year of transcripts is a lot of files.
-    static func size() async -> String {
-        await Task.detached(priority: .utility) { measure() }.value
-    }
-
-    nonisolated private static func measure() -> String {
-        var total: Int64 = 0
-        if let files = FileManager.default.enumerator(at: raw, includingPropertiesForKeys: [.fileSizeKey]) {
-            for case let url as URL in files {
-                total += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
-            }
-        }
-        return ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
     }
 }
 

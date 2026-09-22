@@ -122,7 +122,7 @@ final class CapturePanel: NSObject, NSWindowDelegate {
 
     private func build() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 300),
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 400),
             styleMask: [.titled, .closable, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -135,9 +135,12 @@ final class CapturePanel: NSObject, NSWindowDelegate {
         panel.becomesKeyOnlyIfNeeded = false
         panel.isReleasedWhenClosed = false
         panel.delegate = self
-        panel.contentView = NSHostingView(
-            rootView: CaptureView(model: model) { [weak self] in self?.close() }
-        )
+        // A hosting controller that sizes the panel to its content, so a
+        // panel whose state changes grows and shrinks with it rather than
+        // clipping or leaving a gap.
+        let hosting = NSHostingController(rootView: CaptureView(model: model) { [weak self] in self?.close() })
+        hosting.sizingOptions = [.preferredContentSize]
+        panel.contentViewController = hosting
         return panel
     }
 }
@@ -147,8 +150,13 @@ struct CaptureView: View {
     let done: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Add to unrot").font(.display(17))
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Image(nsImage: TrayGlyph.image(for: .waiting(0)))
+                    .renderingMode(.template)
+                    .foregroundStyle(Color.inkPrimary)
+                Text("Add a gap").font(.system(size: 15, weight: .semibold))
+            }
 
             switch model.phase {
             case .composing, .sending:
@@ -156,76 +164,110 @@ struct CaptureView: View {
             case .filed(let submitted):
                 FiledView(submitted: submitted, model: model, done: done)
             case .splitOut(let corrected):
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Filed as a gap of its own: **\(corrected.concept?.name ?? model.text)**.")
-                        .font(.system(size: 13))
-                    Text("The resolver's call is kept, with your correction beside it.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.inkFaint)
-                }
-                Spacer(minLength: 0)
-                footer(primary: "Done", action: done)
+                Verdict(
+                    title: "Filed as a gap of its own",
+                    text: "“\(corrected.concept?.name ?? model.text)” is its own concept now. The resolver's call is kept, with your correction beside it.",
+                    tint: .bucketClosed, wash: .bucketClosedBG
+                )
+                Button("Done", action: done)
+                    .buttonStyle(UnrotButton(weight: .primary, fill: true))
+                    .keyboardShortcut(.defaultAction)
             case .failed(let message):
-                RefusalNote(text: message)
-                Spacer(minLength: 0)
-                footer(primary: "Close", action: done)
+                Verdict(title: "Not filed", text: message, tint: .bucketOpen, wash: .bucketOpenBG)
+                HStack {
+                    Button("Try again") { model.reset(selection: model.fromSelection ? model.text : nil, from: model.seenIn) }
+                        .buttonStyle(UnrotButton(weight: .primary, fill: true))
+                        .keyboardShortcut(.defaultAction)
+                    Button("Close", action: done).buttonStyle(UnrotButton()).keyboardShortcut(.cancelAction)
+                }
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 18)
         .padding(.top, 30)
-        .padding(.bottom, 14)
-        .frame(width: 420)
-        .frame(minHeight: 260)
+        .padding(.bottom, 18)
+        .frame(width: 440)
         .background(Color.paper)
     }
 
     @ViewBuilder
     private var composing: some View {
-        if model.fromSelection {
-            Text("“\(model.text)”")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color.inkPrimary)
-                .lineLimit(4)
-                .fixedSize(horizontal: false, vertical: true)
-        } else {
-            TextField("A term you met and didn't follow", text: $model.text)
-                .textFieldStyle(.roundedBorder)
+        VStack(alignment: .leading, spacing: 6) {
+            Eyebrow(text: model.fromSelection ? "What you selected" : "The term")
+            if model.fromSelection {
+                Text("“\(model.text)”")
+                    .font(.system(size: 14))
+                    .lineLimit(4)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.sunk, in: RoundedRectangle(cornerRadius: 7))
+            } else {
+                field(TextField("", text: $model.text, prompt: Text("something about backpressure?").foregroundStyle(Color.inkFaint)))
+            }
         }
-
-        TextField("In your own words — optional", text: $model.ownWords, axis: .vertical)
-            .textFieldStyle(.roundedBorder)
-            .lineLimit(1...3)
-
+        VStack(alignment: .leading, spacing: 6) {
+            Eyebrow(text: "In your own words — optional")
+            field(TextField("", text: $model.ownWords, prompt: Text("where you met it, or what you think it means").foregroundStyle(Color.inkFaint), axis: .vertical)
+                .lineLimit(2...4))
+        }
         if let app = model.seenIn {
-            Toggle("Remember it came from \(app)", isOn: $model.rememberSource)
-                .toggleStyle(.checkbox)
-                .font(.system(size: 12))
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Remember it came from \(app)").font(.system(size: 13, weight: .semibold))
+                    Text("The app's name. Never the contents.").font(.system(size: 11)).foregroundStyle(Color.inkFaint)
+                }
+                Spacer()
+                Toggle("", isOn: $model.rememberSource).toggleStyle(.switch).tint(Color.watching).labelsHidden()
+            }
+            .padding(10)
+            .background(Color.sunk, in: RoundedRectangle(cornerRadius: 8))
         }
-
+        HStack(spacing: 8) {
+            Button { Task { await model.send() } } label: {
+                if model.phase == .sending { ProgressView().controlSize(.small) } else { Text("Add") }
+            }
+            .buttonStyle(UnrotButton(weight: .primary, fill: true))
+            .keyboardShortcut(.defaultAction)
+            .disabled(!model.canSend)
+            Button("Cancel", action: done)
+                .buttonStyle(UnrotButton())
+                .keyboardShortcut(.cancelAction)
+        }
         Text(model.fromSelection
              ? "unrot receives the selection and nothing else — not the page, not the document."
              : "Tip: select text in any app, then right-click › Services › Add to unrot.")
             .font(.system(size: 11))
             .foregroundStyle(Color.inkFaint)
             .fixedSize(horizontal: false, vertical: true)
-
-        Spacer(minLength: 0)
-
-        HStack {
-            if model.phase == .sending { ProgressView().controlSize(.small) }
-            Spacer()
-            Button("Cancel", action: done).keyboardShortcut(.cancelAction)
-            Button("Add") { Task { await model.send() } }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!model.canSend)
-        }
     }
 
-    private func footer(primary: String, action: @escaping () -> Void) -> some View {
-        HStack {
-            Spacer()
-            Button(primary, action: action).keyboardShortcut(.defaultAction)
+    private func field<F: View>(_ content: F) -> some View {
+        content
+            .textFieldStyle(.plain)
+            .font(.system(size: 13.5))
+            .padding(10)
+            .background(Color.card, in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.ruleStrong, lineWidth: 1))
+    }
+}
+
+private struct Verdict: View {
+    let title: String
+    let text: String
+    let tint: Color
+    let wash: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(tint)
+            // Markdown, so the concept name can be bold as the canvas has it.
+            Text(LocalizedStringKey(text))
+                .font(.system(size: 12.5))
+                .foregroundStyle(Color.inkPrimary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(wash, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -238,35 +280,33 @@ private struct FiledView: View {
     let done: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if submitted.decision == "new" {
-                Text("New gap: **\(submitted.canonicalName)**")
-                    .font(.system(size: 13))
-            } else {
-                Text("This looks like **\(submitted.canonicalName)**, which you've met before.")
-                    .font(.system(size: 13))
-            }
-
-            Text(submitted.reasoning)
-                .font(.system(size: 12))
-                .italic()
-                .foregroundStyle(Color.inkSoft)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if let unavailable = submitted.modelUnavailable {
-                RefusalNote(text: unavailable)
-            }
+        if submitted.decision == "new" {
+            Verdict(
+                title: "A new gap",
+                text: "**\(submitted.canonicalName)** is waiting beside the ones unrot found. \(submitted.reasoning)",
+                tint: .bucketClosed, wash: .bucketClosedBG
+            )
+        } else {
+            Verdict(
+                title: "Resolved to an existing concept",
+                text: "This looks like **\(submitted.canonicalName)**, which you've met before. \(submitted.reasoning)",
+                tint: .bucketLearning, wash: .bucketLearningBG
+            )
         }
-
-        Spacer(minLength: 0)
-
-        HStack {
-            Spacer()
+        if let unavailable = submitted.modelUnavailable {
+            RefusalNote(text: unavailable)
+        }
+        HStack(spacing: 8) {
             if submitted.isArguable {
+                Button("That's it", action: done)
+                    .buttonStyle(UnrotButton(weight: .primary, fill: true))
+                    .keyboardShortcut(.defaultAction)
                 Button("No — this is new") { Task { await model.itIsNew() } }
-                Button("That's it", action: done).keyboardShortcut(.defaultAction)
+                    .buttonStyle(UnrotButton(fill: true))
             } else {
-                Button("Done", action: done).keyboardShortcut(.defaultAction)
+                Button("Done", action: done)
+                    .buttonStyle(UnrotButton(weight: .primary, fill: true))
+                    .keyboardShortcut(.defaultAction)
             }
         }
     }

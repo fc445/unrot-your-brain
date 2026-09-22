@@ -19,6 +19,9 @@ struct RootView: View {
     let watcher: Watcher
     var router: Router
     var addGap: () -> Void = {}
+    /// Present until the first run is finished; nothing is captured before then.
+    var onboarding: Onboarding? = nil
+    var modelSettings: ModelSettings? = nil
 
     /// The card K and D answer. Arrow keys move it; it defaults to the top.
     @State private var focused: String?
@@ -33,10 +36,14 @@ struct RootView: View {
         VStack(spacing: 0) {
             TitleBar(watcher: watcher, core: core, addGap: addGap)
             Divider()
-            HStack(spacing: 0) {
-                Sidebar(store: store, core: core)
-                Divider()
-                page
+            if let onboarding, !onboarding.done, let modelSettings {
+                FirstRunView(onboarding: onboarding, watcher: watcher, settings: modelSettings)
+            } else {
+                HStack(spacing: 0) {
+                    Sidebar(store: store, core: core)
+                    Divider()
+                    page
+                }
             }
         }
         .background(Color.paper)

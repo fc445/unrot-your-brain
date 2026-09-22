@@ -1,8 +1,9 @@
 //  TrayPopover.swift
 //  UnrotMac
 //
-//  What a left click on the ring shows: the top gap and two keys, or the
-//  server's own sentence about why there is nothing to answer.
+//  After the MenuBar artboard: what a left click on the ring shows. The top
+//  gap and its two answers, what is next, the handful of things worth doing
+//  from the menu bar, and a line saying what is sent where.
 //
 //  It answers one gap at a time and never shows a list. The list is the
 //  window's job; this is for "one thing, while I'm here".
@@ -14,139 +15,185 @@ struct TrayPopover: View {
     let store: SurfaceStore
     let core: CoreProcess
     let quick: QuickAccept
+    let watcher: Watcher
+    let router: Router
     let openMain: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("unrot").font(.display(17))
-                Spacer()
-                if store.waitingCount > 0 {
-                    Text("\(store.waitingCount) waiting")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color.inkFaint)
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text(title).font(.system(size: 14, weight: .semibold))
+                    Spacer()
+                    StatusPill(watcher: watcher, core: core)
+                }
+                content
+                if let answer = quick.undoable {
+                    UndoStrip(answer: answer) { Task { await quick.undo() } }
                 }
             }
+            .padding(16)
 
-            content
-
-            if let answer = quick.undoable {
-                UndoStrip(answer: answer) { Task { await quick.undo() } }
+            if let next = upNext {
+                Divider()
+                HStack(spacing: 8) {
+                    Circle().fill(Color.bucketOpen).frame(width: 7, height: 7)
+                    Text(next.name).font(.system(size: 13))
+                    Spacer()
+                    Text("next").font(.system(size: 11.5)).foregroundStyle(Color.inkFaint)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
             }
 
             Divider()
-
-            HStack {
-                Button("Open unrot", action: openMain)
-                    .buttonStyle(.link)
-                Spacer()
+            VStack(spacing: 0) {
+                MenuRow(title: "Open unrot", shortcut: "⌘0", action: openMain)
+                MenuRow(title: watcher.paused ? "Resume watching" : "Pause watching") { watcher.paused.toggle() }
+                SettingsLink {
+                    MenuRowLabel(title: "Settings…", shortcut: "⌘,")
+                }
+                .buttonStyle(.plain)
             }
-            .font(.system(size: 12))
+            .padding(.vertical, 6)
+
+            HStack(spacing: 6) {
+                Image(systemName: "lock").font(.system(size: 10))
+                Text(watcher.autoAnalyse
+                     ? "Finished sessions are sent to your model for analysis."
+                     : "Nothing is sent anywhere until you ask.")
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(Color.inkFaint)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.sunk)
         }
-        .padding(14)
-        .frame(width: 320)
+        .frame(width: 340)
         .background(Color.paper)
+    }
+
+    private var title: String {
+        if store.state == .failed { return "unrot" }
+        let n = store.waitingCount
+        return n == 0 ? "Nothing waiting" : "\(n) waiting on you"
+    }
+
+    private var upNext: Concept? {
+        let waiting = store.concepts(in: .open)
+        return waiting.count > 1 ? waiting[1] : nil
     }
 
     @ViewBuilder
     private var content: some View {
         if store.state == .failed {
-            // The only alarm colour in the popover, and only for the one state
-            // the server cannot send.
-            VStack(alignment: .leading, spacing: 6) {
-                Text("The core isn't running")
+            // The only alarm colour in the popover, for the one state the
+            // server cannot send.
+            VStack(alignment: .leading, spacing: 8) {
+                Text("unrot-core isn't running")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.alarm)
-                Text(store.failure ?? "unrot is starting it again.")
-                    .font(.system(size: 12))
+                Text("This is not an empty list — it is an unanswered question.")
+                    .font(.system(size: 12.5))
                     .foregroundStyle(Color.inkSoft)
-                    .fixedSize(horizontal: false, vertical: true)
+                Button("Restart the core") { core.restart() }.buttonStyle(UnrotButton())
             }
         } else if let (concept, encounter) = store.nextWaiting {
-            GapPeek(concept: concept, encounter: encounter)
-            QuickKeys(busy: store.busy.contains(encounter.encounterId)) { verdict in
-                Task { await quick.answer(concept: concept, encounter: encounter, verdict) }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(concept.name).font(.system(size: 17, weight: .semibold))
+                if let paraphrase = encounter.paraphrase {
+                    Text(paraphrase)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Color.inkSoft)
+                        .lineLimit(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let provenance = encounter.provenance {
+                    Text(provenance)
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(Color.inkFaint)
+                }
+                QuickKeys(busy: store.busy.contains(encounter.encounterId), showKeys: false) { verdict in
+                    Task { await quick.answer(concept: concept, encounter: encounter, verdict) }
+                }
+                .padding(.top, 4)
+                if encounter.sessionId != nil {
+                    Button("Show the moment in the window") {
+                        router.moment = .init(conceptId: concept.conceptId, encounterId: encounter.encounterId)
+                        openMain()
+                    }
+                    .buttonStyle(LinkButton())
+                }
             }
         } else if let surface = store.surface {
-            // The server's words, for whichever of the calm states this is.
-            VStack(alignment: .leading, spacing: 4) {
-                Text(surface.headline).font(.system(size: 13, weight: .semibold))
-                Text(surface.detail)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.inkSoft)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text(surface.detail)
+                .font(.system(size: 12.5))
+                .foregroundStyle(Color.inkSoft)
+                .fixedSize(horizontal: false, vertical: true)
         } else {
             // Not loaded yet. The core may simply be starting, which is not a
             // failure and must not be drawn as one.
             Text(core.status.isUp ? "Reading the log…" : "Starting the core…")
-                .font(.system(size: 12))
+                .font(.system(size: 12.5))
                 .foregroundStyle(Color.inkFaint)
         }
     }
 }
 
-struct GapPeek: View {
-    let concept: Concept
-    let encounter: Encounter
+private struct MenuRow: View {
+    let title: String
+    var shortcut: String? = nil
+    let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text(concept.name)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.inkPrimary)
-                Pip(text: encounter.source, tint: .inkFaint, wash: .sunk)
+        Button(action: action) { MenuRowLabel(title: title, shortcut: shortcut) }
+            .buttonStyle(.plain)
+    }
+}
+
+private struct MenuRowLabel: View {
+    let title: String
+    var shortcut: String? = nil
+
+    var body: some View {
+        HStack {
+            Text(title).font(.system(size: 13))
+            Spacer()
+            if let shortcut {
+                Text(shortcut).font(.system(size: 12)).foregroundStyle(Color.inkFaint)
             }
-            Text(encounter.paraphrase ?? "—")
-                .font(.system(size: 12))
-                .foregroundStyle(Color.inkSoft)
-                .lineLimit(4)
-                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.card, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.rule, lineWidth: 1))
+        .foregroundStyle(Color.inkPrimary)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
     }
 }
 
 /// The same two keys everywhere they appear: D for "I didn't know this", K for
-/// "I knew this". Plain keys rather than chords, because the whole point is
-/// that answering costs nothing -- the undo is what makes that safe.
+/// "I knew it". Plain keys rather than chords, because the whole point is that
+/// answering costs nothing -- the undo is what makes that safe.
 struct QuickKeys: View {
     let busy: Bool
+    /// The keycaps teach the keys where there is room; the popover has none.
+    var showKeys = true
     let answer: (Verdict) -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            Button { answer(.confirm) } label: { Keyed(label: "I didn't know this", key: "D") }
-                .keyboardShortcut("d", modifiers: [])
-                .buttonStyle(.borderedProminent)
-            Button { answer(.dismiss) } label: { Keyed(label: "I knew this", key: "K") }
-                .keyboardShortcut("k", modifiers: [])
-                .buttonStyle(.bordered)
-            if busy { ProgressView().controlSize(.small) }
-            Spacer(minLength: 0)
+            Button { answer(.confirm) } label: {
+                HStack(spacing: 6) { Text("I didn't know this").lineLimit(1); if showKeys { Keycap(key: "D", inverted: true) } }
+            }
+            .keyboardShortcut("d", modifiers: [])
+            .buttonStyle(UnrotButton(weight: .primary, fill: true))
+            Button { answer(.dismiss) } label: {
+                HStack(spacing: 6) { Text("I knew it").lineLimit(1); if showKeys { Keycap(key: "K") } }
+            }
+            .keyboardShortcut("k", modifiers: [])
+            .buttonStyle(UnrotButton(fill: true))
         }
-        .font(.system(size: 12))
         .disabled(busy)
-    }
-}
-
-private struct Keyed: View {
-    let label: String
-    let key: String
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Text(label)
-            Text(key)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
-        }
     }
 }
 
@@ -158,18 +205,24 @@ struct UndoStrip: View {
     let undo: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text(answer.sentence)
-                .font(.system(size: 12))
-                .foregroundStyle(Color.inkSoft)
-                .lineLimit(2)
-            Spacer(minLength: 4)
-            Button("Undo", action: undo)
-                .keyboardShortcut("z", modifiers: .command)
-                .buttonStyle(.link)
-                .font(.system(size: 12, weight: .medium))
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark").foregroundStyle(Color.bucketLearning)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(answer.sentence)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Color.bucketLearning)
+                Text("Stays for eight seconds, then commits.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.inkSoft)
+            }
+            Spacer(minLength: 6)
+            Button(action: undo) {
+                HStack(spacing: 5) { Text("Undo"); Keycap(key: "⌘Z") }
+            }
+            .keyboardShortcut("z", modifiers: .command)
+            .buttonStyle(LinkButton())
         }
-        .padding(8)
-        .background(Color.sunk, in: RoundedRectangle(cornerRadius: 6))
+        .padding(10)
+        .background(Color.bucketLearningBG, in: RoundedRectangle(cornerRadius: 8))
     }
 }
