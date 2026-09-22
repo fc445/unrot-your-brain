@@ -11,7 +11,9 @@ from .prompt import prompt_id
 from .resolve import (
     DECISIONS,
     RESOLVER_VERSION,
+    UNRESOLVABLE,
     Resolution,
+    Unresolvable,
     correct,
     judgments,
     merge,
@@ -30,6 +32,8 @@ __all__ = [
     "RESOLVER_VERSION",
     "Resolution",
     "Submission",
+    "UNRESOLVABLE",
+    "Unresolvable",
     "build_decider",
     "correct",
     "current",

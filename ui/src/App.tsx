@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, getSurface, judge, makeMaterial } from "./api";
+import { AddGap } from "./components/AddGap";
 import { EmptyState } from "./components/EmptyState";
 import { GapCard } from "./components/GapCard";
 import type { Bucket, Format, Graded, Surface } from "./types";
@@ -151,6 +152,8 @@ export default function App() {
           <p className="subhead">{surface.detail}</p>
         </>
       )}
+
+      <AddGap onAdded={() => void load()} />
 
       {/* Seeded data must never read as a finding about the user. */}
       {surface.fixtures > 0 && (

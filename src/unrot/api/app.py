@@ -590,7 +590,7 @@ def create_app() -> FastAPI:
         user can switch off before sending; it is folded into the paraphrase,
         which is the layer that has to stand alone, and nowhere else.
         """
-        from ..resolver import manual, resolve, strict
+        from ..resolver import Unresolvable, manual, resolve, strict
 
         body = body or {}
         text = " ".join(str(body.get("text") or "").split())
@@ -625,6 +625,10 @@ def create_app() -> FastAPI:
         with stores() as (conn, _raw):
             try:
                 resolution = resolve(conn, submission, decide=guarded, model_label=label)
+            except Unresolvable as exc:
+                # 422 rather than 400: the request was well formed, and the
+                # resolver read it and found nothing to file. Nothing was written.
+                raise HTTPException(422, str(exc)) from exc
             except _ModelUnavailable as exc:
                 resolution = resolve(conn, submission, decide=strict, model_label="none")
                 unavailable = (

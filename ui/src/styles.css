@@ -725,3 +725,36 @@ button {
   font-size: 13px;
   max-width: 68ch;
 }
+
+/* --------------------------------------------------------------- add gap -- */
+
+.add-gap {
+  margin: 20px 0 0;
+}
+
+.add-gap label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.add-gap-row {
+  display: flex;
+  gap: 8px;
+}
+
+.add-gap-result {
+  margin: 8px 0 0;
+  max-width: 60ch;
+  color: var(--ink-soft);
+  font-size: 13.5px;
+}
+
+.add-gap-why {
+  font-style: italic;
+}
+
+.add-gap-result[data-tone="refused"] {
+  color: var(--open);
+}

@@ -221,3 +221,88 @@ def test_a_model_that_cannot_be_reached_costs_the_check_not_the_capture(
     )["resolver_version"]
     conn.close()
     assert "test-model" not in version
+
+
+# --- PR-22: the three done-when criteria --------------------------------------------
+
+
+def event_count(home) -> int:
+    conn = open_store(home)
+    n = conn.execute("SELECT count(*) AS n FROM events").fetchone()["n"]
+    conn.close()
+    return n
+
+
+def test_a_vague_submission_resolves_and_sits_beside_detected_gaps(client, home, monkeypatch):
+    """PR-22's named v1 acceptance criterion."""
+    decider_says(
+        monkeypatch,
+        decision="new",
+        canonical_name="backpressure",
+        paraphrase="Slowing producers down when a consumer can't keep up.",
+        reasoning="They were reaching for backpressure.",
+    )
+
+    body = client.post(
+        "/api/submissions", json={"text": "something about backpressure?"}
+    ).json()
+
+    assert body["canonical_name"] == "backpressure"
+    surface = client.get("/api/surface").json()
+    assert [c["name"] for c in surface["concepts"] if c["bucket"] == "open"] == ["backpressure"]
+
+
+def test_a_submission_matching_a_known_concept_merges_rather_than_duplicating(client, home):
+    known(home)
+    client.post("/api/submissions", json={"text": "Backpressure"})
+
+    names = [c["name"] for c in client.get("/api/surface").json()["concepts"]]
+    assert names.count("Backpressure") == 1
+
+
+def test_nonsense_fails_visibly_and_writes_nothing(client, home, monkeypatch):
+    """Rather than silently creating a garbage concept."""
+    decider_says(
+        monkeypatch,
+        decision="unclear",
+        canonical_name="asdkjh",
+        reasoning="That reads as keyboard noise rather than a term.",
+    )
+    before = event_count(home)
+
+    response = client.post("/api/submissions", json={"text": "asdkjh"})
+
+    assert response.status_code == 422
+    assert "keyboard noise" in response.json()["detail"]
+    assert event_count(home) == before
+
+
+def test_input_with_no_word_in_it_is_refused_without_asking_a_model(client, home, monkeypatch):
+    def must_not_be_called(_submission, _shortlist):
+        raise AssertionError("the model was asked about something with no word in it")
+
+    monkeypatch.setattr(app_module, "_build_decider", lambda: (must_not_be_called, "test-model"))
+    before = event_count(home)
+
+    response = client.post("/api/submissions", json={"text": "??? 123"})
+
+    assert response.status_code == 422
+    assert event_count(home) == before
+
+
+def test_unclear_is_never_honoured_for_a_detected_term(home):
+    """A transcript term cannot contain no term. It falls back to new, as before."""
+    from unrot.resolver import Submission, resolve
+
+    conn = open_store(home)
+    resolution = resolve(
+        conn,
+        Submission(
+            text="idempotency", paraphrase="p", source="transcript",
+            version="detector/test", session_id="s", line_start=1, line_end=2,
+        ),
+        decide=lambda _s, _l: {"decision": "unclear", "reasoning": "?"},
+    )
+    conn.close()
+
+    assert resolution.decision == "new"

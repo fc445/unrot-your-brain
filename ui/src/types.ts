@@ -169,3 +169,18 @@ export interface Judgment {
   surface: SurfaceState;
   counts: Record<string, number>;
 }
+
+/** What the resolver did with a typed term (`POST /api/submissions`). */
+export interface Submitted {
+  encounter_id: string;
+  concept_id: string;
+  canonical_name: string;
+  decision: "new" | "existing" | "alias";
+  reasoning: string;
+  judgment_event_id: string;
+  decided_without_model: boolean;
+  /** Set only when a model should have answered and could not. */
+  model_unavailable: string | null;
+  concept: Concept | null;
+  counts: Record<string, number>;
+}

@@ -5,6 +5,7 @@ import type {
   Judgment,
   Made,
   Moment,
+  Submitted,
   Surface,
 } from "./types";
 
@@ -73,3 +74,13 @@ export const makeMaterial = (conceptId: string, format: Format) =>
     `/api/concepts/${encodeURIComponent(conceptId)}/material?format=${format}`,
     { method: "POST" },
   );
+
+/** Journey 10: a term met somewhere capture never sees. A refusal -- nothing
+ *  recognisable to file -- comes back as an ApiError with status 422 and the
+ *  resolver's reason as its message. */
+export const submitTerm = (text: string) =>
+  call<Submitted>("/api/submissions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });

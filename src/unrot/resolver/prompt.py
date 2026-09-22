@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import hashlib
 
-PROMPT_VERSION = "r1"
+#: r2: typed items may be answered "unclear" -- PR-22's "fails visibly rather
+#: than silently creating a garbage concept". Bumping this changes
+#: `resolver_version`, so judgments made under r1 stay distinguishable.
+PROMPT_VERSION = "r2"
 
 TEMPLATE = """\
 You maintain a personal knowledge graph of concepts someone has encountered but \
@@ -69,6 +72,13 @@ or barely a term at all ("something about backpressure?"). Work out what they \
 were reaching for. If you genuinely cannot tell what concept is meant, say "new" \
 and use their own words as the canonical name -- a wrong guess is worse than a \
 rough one they can correct.
+
+One more answer is allowed for typed items, and only for these:
+- "unclear" -- there is no concept here to file at all: keyboard noise, a pronoun \
+with nothing to point at ("that thing"), a sentence with no term in it. NOT for \
+something vague but real: "something about backpressure?" is backpressure, and \
+"that pattern where you retry with longer waits" is exponential backoff. Say what \
+was missing in your reasoning -- the person will read it and try again.
 
 """
 

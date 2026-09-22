@@ -23,6 +23,7 @@ from . import prompt as prompt_module
 from .resolve import (
     correct,
     judgments,
+    Unresolvable,
     merge,
     resolve,
     resolver_version,
@@ -136,9 +137,13 @@ def _cmd_add(args) -> int:
     """Journey 10: a term from a meeting, a podcast, a corridor conversation."""
     conn = open_store(args.home)
     decide, model_label, _ = _deciding(args)
-    resolution = resolve(
-        conn, manual(" ".join(args.text)), decide=decide, model_label=model_label
-    )
+    try:
+        resolution = resolve(
+            conn, manual(" ".join(args.text)), decide=decide, model_label=model_label
+        )
+    except Unresolvable as exc:
+        print(f"not filed: {exc}", file=sys.stderr)
+        return 1
     print(f"{resolution.decision}: {resolution.canonical_name}  [{resolution.concept_id}]")
     print(f"  {resolution.reasoning}")
     print(f"  judgment {resolution.judgment_event_id} -- correct it with: correct <id>")

@@ -47,6 +47,21 @@ RESOLVER_VERSION = "0.1.0"
 #: of a wrong match is an encounter filed under something the user never met.
 DECISIONS = ("new", "existing", "alias")
 
+#: The one answer that files nothing. Only honoured for typed submissions: a
+#: detector candidate is a term lifted from a transcript, so "there is no term
+#: here" cannot be true of it, and it falls back to `new` like any other answer
+#: outside `DECISIONS`.
+UNRESOLVABLE = "unclear"
+
+
+class Unresolvable(ValueError):
+    """A typed submission with no concept in it. Nothing was written.
+
+    Raised before the first append, so a refusal leaves no trace in the log --
+    PR-22's "fails visibly rather than silently creating a garbage concept". The
+    message is the reason, written for the person who typed it.
+    """
+
 
 def resolver_version(model_label: str) -> str:
     """Which resolver produced a judgment: version, model, and prompt.
@@ -112,6 +127,11 @@ def resolve(
     out its decision can be read as its consequences, and so a correction has
     something to point at even if a later append fails.
     """
+    if submission.source == "manual" and not any(ch.isalpha() for ch in submission.text):
+        # The floor that needs no model: with no word in it there is nothing to
+        # resolve, and the string-only decider would otherwise file it as new.
+        raise Unresolvable("There is no word in that to look up. Try the term, or roughly what it sounded like.")
+
     known = match.current(conn)
     hit = match.exact(known, submission.text)
 
@@ -126,6 +146,11 @@ def resolve(
     else:
         answer = decide(submission, match.shortlist(known, submission.text)) or {}
         decision = str(answer.get("decision") or "").strip().lower()
+        if decision == UNRESOLVABLE and submission.source == "manual":
+            raise Unresolvable(
+                str(answer.get("reasoning") or "").strip()
+                or "That doesn't name a concept I can file. Try the term, or roughly what it sounded like."
+            )
         if decision not in DECISIONS:
             decision = "new"
 

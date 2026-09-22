@@ -55,7 +55,10 @@ def build_decider(config: ModelConfig):
 
     class Decision(BaseModel):
         decision: str = Field(
-            description="new | existing | alias. Prefer `new` when genuinely unsure."
+            description=(
+                "new | existing | alias, or unclear for a typed item with no concept"
+                " in it at all. Prefer `new` when genuinely unsure."
+            )
         )
         concept_id: str | None = Field(
             default=None,
