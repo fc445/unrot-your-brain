@@ -64,6 +64,21 @@ def _cmd_stats(args) -> int:
     return 0
 
 
+def _cmd_metrics(args) -> int:
+    """PR-28's leading metrics for a window. Reads the log; writes nothing."""
+    from ..metrics import compute, render, window
+
+    conn = open_store(args.home)
+    try:
+        since = window(args.days, args.since)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    report = compute(conn, since=since)
+    print(report.as_json() if args.json else render(report))
+    return 0
+
+
 def _cmd_seed(args) -> int:
     conn = open_store(args.home)
     if args.clear:
@@ -103,6 +118,14 @@ def main(argv=None) -> int:
 
     p_stats = sub.add_parser("stats", help="what is in the log")
     p_stats.set_defaults(func=_cmd_stats)
+
+    p_metrics = sub.add_parser(
+        "metrics", help="the week-of-self-use numbers PR-28 asks for (reads only)"
+    )
+    p_metrics.add_argument("--days", type=int, help="the last N days (default 7)")
+    p_metrics.add_argument("--since", help="from this date instead, e.g. 2026-09-22")
+    p_metrics.add_argument("--json", action="store_true", help="machine-readable")
+    p_metrics.set_defaults(func=_cmd_metrics)
 
     p_seed = sub.add_parser(
         "seed", help="write development fixtures (stand-in for the unbuilt resolver)"
