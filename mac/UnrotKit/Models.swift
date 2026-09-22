@@ -291,3 +291,48 @@ public struct Corrected: Codable, Hashable, Sendable {
     public let concept: Concept?
     public let counts: [String: Int]
 }
+
+/// A captured session waiting to be analysed. Derived by the core from what
+/// capture holds and what the log says was examined -- nothing stores it.
+public struct PendingSession: Codable, Hashable, Sendable, Identifiable {
+    public let sessionId: String
+    public let lastActivity: String?
+    public let humanTurns: Int
+    /// `never` -- captured, not yet examined; `grown` -- examined, then continued.
+    public let reason: String
+    public let analysedAt: String?
+    public let cwd: String?
+
+    public var id: String { sessionId }
+
+    /// The repo, by its last path component: enough to recognise, no more.
+    public var repo: String? {
+        cwd.map { ($0 as NSString).lastPathComponent }
+    }
+}
+
+public struct AnalysisQueue: Codable, Hashable, Sendable {
+    public let pending: [PendingSession]
+    /// Whether a model is configured. Capture never needs one; analysis does.
+    public let canAnalyse: Bool
+    public let analysing: [String]
+}
+
+public struct CaptureResult: Codable, Hashable, Sendable {
+    public struct Captured: Codable, Hashable, Sendable {
+        public let sessionId: String
+        public let status: String
+        public let turnsAdded: Int
+    }
+    public let captured: [Captured]
+    public let pending: Int
+}
+
+public struct Analysed: Codable, Hashable, Sendable {
+    public let sessionId: String
+    public let clean: Bool
+    public let filed: [String]
+    public let windowsExamined: Int
+    public let detectorVersion: String
+    public let counts: [String: Int]
+}

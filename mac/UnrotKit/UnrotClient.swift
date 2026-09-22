@@ -112,6 +112,28 @@ public struct UnrotClient: Sendable {
         return try await post(Corrected.self, "/api/judgments/\(escape(judgmentEventId))/correct", body: body)
     }
 
+    // MARK: - The watcher
+
+    public func queue() async throws -> AnalysisQueue {
+        try await get(AnalysisQueue.self, "/api/queue")
+    }
+
+    /// Copy transcripts into the raw store. No model, no cost.
+    public func capture(paths: [String]) async throws -> CaptureResult {
+        let body = try JSONSerialization.data(withJSONObject: ["paths": paths])
+        return try await post(CaptureResult.self, "/api/capture", body: body)
+    }
+
+    /// Analyse one session. The call that costs, so nothing makes it but a
+    /// click or a setting the user switched on. Given a long timeout: a long
+    /// session is several model calls, and giving up on one that is working
+    /// would only make the retry pay again.
+    public func analyse(sessionId: String) async throws -> Analysed {
+        let body = try JSONSerialization.data(withJSONObject: ["session_id": sessionId])
+        let patient = UnixSocketHTTP(socketPath: http.socketPath, timeout: 900)
+        return try decode(Analysed.self, await perform("POST", "/api/analyse", body: body, over: patient))
+    }
+
     public func explain(conceptId: String, text: String) async throws -> Graded {
         let body = try JSONSerialization.data(withJSONObject: ["text": text])
         return try await post(Graded.self, "/api/concepts/\(escape(conceptId))/explanation", body: body)
