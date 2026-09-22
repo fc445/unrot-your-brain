@@ -14,7 +14,7 @@ struct UnrotMacApp: App {
         // The window is AppKit's (see MainWindow). This scene exists for the
         // menu bar commands and, in phase 5, the settings panes.
         Settings {
-            SettingsView(notifier: delegate.notifier)
+            SettingsView(notifier: delegate.notifier, watcher: delegate.watcher)
         }
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -42,10 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let core = CoreProcess()
     lazy var store = SurfaceStore(client: UnrotClient(socketPath: core.socketPath))
     lazy var quick = QuickAccept(store: store)
+    lazy var watcher = Watcher(client: UnrotClient(socketPath: core.socketPath), store: store, core: core)
 
     private lazy var main = MainWindow { [unowned self] in
         AnyView(
-            RootView(core: core, store: store, quick: quick)
+            RootView(core: core, store: store, quick: quick, watcher: watcher)
                 .frame(minWidth: 620, minHeight: 480)
         )
     }
@@ -69,12 +70,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             store: store,
             core: core,
             quick: quick,
+            watcher: watcher,
             actions: .init(
                 openMain: { [weak self] in self?.showMain() },
                 addGap: { [weak self] in self?.capture.openBlank() }
             )
         )
         notifier.start()
+        watcher.start()
         NSApp.servicesProvider = service
         // Re-reads the Services declarations, so "Add to unrot" appears without
         // logging out after the app is installed or moved.

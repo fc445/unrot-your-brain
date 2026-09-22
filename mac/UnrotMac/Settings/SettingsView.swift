@@ -9,15 +9,96 @@ import UnrotKit
 
 struct SettingsView: View {
     let notifier: Notifier
+    let watcher: Watcher
 
     var body: some View {
         TabView {
+            WatchingPane(watcher: watcher)
+                .tabItem { Label("Watching", systemImage: "eye") }
             NotificationsPane(notifier: notifier)
                 .tabItem { Label("Notifications", systemImage: "bell") }
             CapturePane()
                 .tabItem { Label("Capture", systemImage: "text.cursor") }
         }
-        .frame(width: 520, height: 360)
+        .frame(width: 540, height: 460)
+    }
+}
+
+private struct WatchingPane: View {
+    @Bindable var watcher: Watcher
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Capture sessions when they finish", isOn: Binding(
+                    get: { !watcher.paused },
+                    set: { watcher.paused = !$0 }
+                ))
+                Stepper(value: $watcher.quietMinutes, in: 2...60) {
+                    Text("Wait \(watcher.quietMinutes) minutes after a session goes quiet")
+                }
+                .disabled(watcher.paused)
+            } footer: {
+                Text("""
+                    Capture copies a transcript Claude Code already wrote to disk into \
+                    ~/.unrot/raw, which never syncs. No model is called. A session is only \
+                    taken once it and everything else in its project have been quiet this \
+                    long — the detector judges your next turn, and mid-session there isn't one.
+                    """)
+                .font(.system(size: 11))
+                .foregroundStyle(Color.inkFaint)
+            }
+
+            Section {
+                Toggle("Analyse finished sessions automatically", isOn: $watcher.autoAnalyse)
+                    .disabled(watcher.paused)
+            } footer: {
+                Text("""
+                    Analysis sends a session's turns to your model endpoint, one call per \
+                    stretch of conversation, and costs what that costs. Off, sessions are \
+                    captured and wait for Analyse now. On, it applies only to sessions that \
+                    finish after you switch it on — anything already waiting still waits \
+                    for you.
+                    """)
+                .font(.system(size: 11))
+                .foregroundStyle(Color.inkFaint)
+            }
+
+            Section("Waiting to be analysed") {
+                if let pending = watcher.queue?.pending, !pending.isEmpty {
+                    ForEach(pending.prefix(8)) { session in
+                        LabeledContent(session.repo ?? session.sessionId) {
+                            Text("\(session.humanTurns) turns\(session.reason == "grown" ? ", continued" : "")")
+                                .foregroundStyle(Color.inkFaint)
+                        }
+                        .font(.system(size: 12))
+                    }
+                    if pending.count > 8 {
+                        Text("and \(pending.count - 8) more")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.inkFaint)
+                    }
+                    HStack {
+                        if let error = watcher.lastError {
+                            Text(error).font(.system(size: 11)).foregroundStyle(Color.inkSoft)
+                        }
+                        Spacer()
+                        if watcher.isRunning {
+                            Button("Stop") { watcher.stopAnalysing() }
+                        } else {
+                            Button("Analyse \(pending.count) now") { watcher.analyseNow() }
+                                .disabled(!watcher.canAnalyse)
+                        }
+                    }
+                } else {
+                    Text("Nothing waiting.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.inkFaint)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .task { await watcher.refreshQueue() }
     }
 }
 

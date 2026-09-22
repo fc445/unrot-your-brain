@@ -20,6 +20,7 @@ final class StatusItemController: NSObject {
     private let store: SurfaceStore
     private let core: CoreProcess
     private let quick: QuickAccept
+    private let watcher: Watcher
     private let actions: Actions
 
     /// What the right-click menu and the popover can ask the app to do.
@@ -30,12 +31,20 @@ final class StatusItemController: NSObject {
 
     private var spinner: Timer?
     private var phase: CGFloat = 0
-    private var shown: TrayState?
+    private var shown: Shown?
 
-    init(store: SurfaceStore, core: CoreProcess, quick: QuickAccept, actions: Actions) {
+    /// What is on screen: the glyph, and the count beside it. The count shows in
+    /// every state but core-down, so pausing never hides how many are waiting.
+    private struct Shown: Equatable {
+        let state: TrayState
+        let count: Int
+    }
+
+    init(store: SurfaceStore, core: CoreProcess, quick: QuickAccept, watcher: Watcher, actions: Actions) {
         self.store = store
         self.core = core
         self.quick = quick
+        self.watcher = watcher
         self.actions = actions
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
@@ -74,17 +83,24 @@ final class StatusItemController: NSObject {
     // MARK: - State
 
     /// Assembled from three sources, deciding none of them. The count is the
-    /// server's; up or down is the supervisor's; the watcher's states arrive
-    /// with phase 3.
+    /// server's; up or down is the supervisor's; paused and analysing are the
+    /// watcher's.
     private var state: TrayState {
         if !core.status.isUp || store.state == .failed { return .coreDown }
+        if watcher.analysing != nil { return .analysing }
+        if watcher.paused { return .paused }
         let waiting = store.waitingCount
         return waiting > 0 ? .waiting(waiting) : .clean
     }
 
+    private var current: Shown {
+        let now = state
+        return Shown(state: now, count: now == .coreDown ? 0 : store.waitingCount)
+    }
+
     private func follow() {
         withObservationTracking {
-            _ = state
+            _ = current
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.render()
@@ -94,22 +110,22 @@ final class StatusItemController: NSObject {
     }
 
     private func render() {
-        let now = state
+        let now = current
         guard now != shown else { return }
         shown = now
 
         guard let button = item.button else { return }
-        button.image = TrayGlyph.image(for: now, phase: phase)
-        button.setAccessibilityLabel(now.accessibilityLabel)
-        if case .waiting(let n) = now {
+        button.image = TrayGlyph.image(for: now.state, phase: phase)
+        button.setAccessibilityLabel(now.state.accessibilityLabel)
+        if now.count > 0 {
             button.attributedTitle = NSAttributedString(
-                string: " \(n)",
+                string: " \(now.count)",
                 attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)]
             )
         } else {
             button.title = ""
         }
-        animate(now == .analysing)
+        animate(now.state == .analysing)
     }
 
     /// The one animation, and only while something is being analysed.
@@ -143,7 +159,10 @@ final class StatusItemController: NSObject {
             popover.performClose(nil)
             return
         }
-        Task { await store.load() }
+        Task {
+            await store.load()
+            await watcher.refreshQueue()
+        }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         // Keys only reach the popover if it is key, and it is only key if the
         // app is active. Without this, D and K would go to whatever app was
@@ -154,6 +173,27 @@ final class StatusItemController: NSObject {
 
     private func showMenu() {
         let menu = NSMenu()
+
+        if watcher.isRunning {
+            let running = watcher.progress.map { "Analysing \($0.done + 1) of \($0.total)…" } ?? "Analysing…"
+            menu.addItem(withTitle: running, action: nil, keyEquivalent: "").isEnabled = false
+            menu.addItem(withTitle: "Stop Analysing", action: #selector(stopAnalysing), keyEquivalent: "").target = self
+        } else if watcher.pendingCount > 0 {
+            let n = watcher.pendingCount
+            let title = watcher.canAnalyse
+                ? "Analyse \(n) Session\(n == 1 ? "" : "s") Now"
+                : "\(n) Waiting — No Model Configured"
+            let analyse = menu.addItem(withTitle: title, action: #selector(analyseNow), keyEquivalent: "")
+            analyse.target = self
+            analyse.isEnabled = watcher.canAnalyse
+        }
+        menu.addItem(
+            withTitle: watcher.paused ? "Resume Watching" : "Pause Watching",
+            action: #selector(togglePaused),
+            keyEquivalent: ""
+        ).target = self
+        menu.addItem(.separator())
+
         if actions.addGap != nil {
             menu.addItem(withTitle: "Add a Gap…", action: #selector(addGap), keyEquivalent: "").target = self
         }
@@ -168,6 +208,9 @@ final class StatusItemController: NSObject {
         item.menu = nil
     }
 
+    @objc private func analyseNow() { watcher.analyseNow() }
+    @objc private func stopAnalysing() { watcher.stopAnalysing() }
+    @objc private func togglePaused() { watcher.paused.toggle() }
     @objc private func addGap() { actions.addGap?() }
     @objc private func openMain() { actions.openMain() }
     @objc private func quit() { NSApp.terminate(nil) }

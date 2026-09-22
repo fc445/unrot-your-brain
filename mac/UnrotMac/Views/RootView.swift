@@ -16,6 +16,7 @@ struct RootView: View {
     let core: CoreProcess
     @Bindable var store: SurfaceStore
     let quick: QuickAccept
+    let watcher: Watcher
 
     @Environment(\.undoManager) private var undoManager
 
@@ -73,6 +74,9 @@ struct RootView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 Masthead(store: store, core: core)
+
+                QueueBar(watcher: watcher)
+                    .padding(.top, 28)
 
                 if let empty = store.emptyState {
                     EmptyStateView(
@@ -263,6 +267,65 @@ private struct SectionView: View {
                     nextEncounterId: store.nextWaiting?.encounter.encounterId
                 )
             }
+        }
+    }
+}
+
+/// Captured sessions waiting to be analysed, and the one button that spends
+/// money on them. Absent when there is nothing to say.
+private struct QueueBar: View {
+    let watcher: Watcher
+
+    var body: some View {
+        if let line {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.inkFaint)
+                Text(line)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.inkSoft)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                button
+            }
+            .padding(10)
+            .background(Color.sunk, in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private var line: String? {
+        if let error = watcher.lastError { return error }
+        if watcher.isRunning, let progress = watcher.progress {
+            return "Analysing \(progress.done + 1) of \(progress.total)…"
+        }
+        if watcher.paused { return "Watching is paused. Finished sessions are not being captured." }
+        let n = watcher.pendingCount
+        guard n > 0 else { return nil }
+        let sessions = n == 1 ? "1 captured session is" : "\(n) captured sessions are"
+        if !watcher.canAnalyse {
+            return "\(sessions) waiting, but no model is configured, so none can be analysed yet."
+        }
+        return watcher.autoAnalyse
+            ? "\(sessions) waiting from before automatic analysis was on."
+            : "\(sessions) waiting to be analysed."
+    }
+
+    private var icon: String {
+        if watcher.lastError != nil { return "exclamationmark.circle" }
+        if watcher.paused { return "pause.circle" }
+        return "tray.full"
+    }
+
+    @ViewBuilder
+    private var button: some View {
+        if watcher.isRunning {
+            Button("Stop") { watcher.stopAnalysing() }
+        } else if watcher.paused {
+            Button("Resume") { watcher.paused = false }
+        } else if watcher.pendingCount > 0 && watcher.canAnalyse {
+            Button("Analyse now") { watcher.analyseNow() }
+                .buttonStyle(.borderedProminent)
         }
     }
 }
