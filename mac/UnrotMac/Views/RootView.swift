@@ -15,11 +15,46 @@ import UnrotKit
 struct RootView: View {
     let core: CoreProcess
     @Bindable var store: SurfaceStore
+    let quick: QuickAccept
+
+    @Environment(\.undoManager) private var undoManager
 
     var body: some View {
         ZStack {
             Color.paper.ignoresSafeArea()
             content
+        }
+        // K and D answer the gap on top of the pile. Handled here rather than
+        // as keyboard shortcuts, deliberately: a shortcut on a bare letter
+        // fires even while a text editor has focus, so typing an explanation
+        // containing a "d" would answer a gap. `onKeyPress` on the list only
+        // sees keys a focused editor did not take.
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress(characters: CharacterSet(charactersIn: "dDkK"), phases: .down) { press in
+            guard let (concept, encounter) = store.nextWaiting else { return .ignored }
+            let verdict: Verdict = press.characters.lowercased() == "d" ? .confirm : .dismiss
+            Task { await quick.answer(concept: concept, encounter: encounter, verdict) }
+            return .handled
+        }
+        .overlay(alignment: .bottom) {
+            if let answer = quick.undoable {
+                UndoStrip(answer: answer) { Task { await quick.undo() } }
+                    .frame(maxWidth: 420)
+                    .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+                    .padding(.bottom, 18)
+            }
+        }
+        // ⌘Z through the window's own undo manager, so it takes its turn with
+        // text editing the way every Mac app's undo does -- rather than a
+        // shortcut that would steal ⌘Z from an editor mid-sentence.
+        .onChange(of: quick.undoable) { _, answer in
+            undoManager?.removeAllActions(withTarget: quick)
+            guard let answer else { return }
+            undoManager?.registerUndo(withTarget: quick) { target in
+                Task { @MainActor in await target.undo() }
+            }
+            undoManager?.setActionName(answer.verdict == .confirm ? "“Didn't Know This”" : "“Knew This”")
         }
         .task {
             // The first paint waits for the core to answer rather than showing
@@ -63,7 +98,7 @@ struct RootView: View {
                     }
 
                     ForEach(store.populated) { section in
-                        SectionView(section: section, store: store)
+                        SectionView(section: section, store: store, quick: quick)
                             .padding(.top, 26)
                     }
                 } else if !store.hasLoadedOnce {
@@ -201,6 +236,7 @@ private struct FixturesNotice: View {
 private struct SectionView: View {
     let section: BucketSection
     let store: SurfaceStore
+    let quick: QuickAccept
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -220,7 +256,12 @@ private struct SectionView: View {
             }
 
             ForEach(store.concepts(in: section.bucket)) { concept in
-                GapCardView(concept: concept, store: store)
+                GapCardView(
+                    concept: concept,
+                    store: store,
+                    quick: quick,
+                    nextEncounterId: store.nextWaiting?.encounter.encounterId
+                )
             }
         }
     }

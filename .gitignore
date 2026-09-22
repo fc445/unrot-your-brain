@@ -20,3 +20,6 @@ xcuserdata/
 DerivedData/
 # SwiftPM scratch, from running a single-file Swift script in the repo.
 .build/
+
+# Finder metadata.
+.DS_Store

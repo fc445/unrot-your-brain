@@ -12,6 +12,9 @@ import UnrotKit
 struct GapCardView: View {
     let concept: Concept
     @Bindable var store: SurfaceStore
+    let quick: QuickAccept
+    /// The encounter K and D will answer, if it is on this card.
+    let nextEncounterId: String?
 
     @State private var showingCheck = false
     @State private var openMoment: MomentRequest?
@@ -24,8 +27,11 @@ struct GapCardView: View {
                 EncounterRow(
                     encounter: encounter,
                     busy: store.busy.contains(encounter.encounterId),
+                    isNext: encounter.encounterId == nextEncounterId,
                     onJudge: { verdict in
-                        Task { await store.judge(encounter.encounterId, verdict) }
+                        // Through quick accept even for a click, so every answer
+                        // gets the same undo regardless of how it was given.
+                        Task { await quick.answer(concept: concept, encounter: encounter, verdict) }
                     },
                     onMoment: { openMoment = MomentRequest(id: encounter.encounterId) }
                 )
@@ -121,6 +127,8 @@ struct GapCardView: View {
 private struct EncounterRow: View {
     let encounter: Encounter
     let busy: Bool
+    /// Whether K and D answer this one. Shown, so the keys are never a guess.
+    let isNext: Bool
     let onJudge: (Verdict) -> Void
     let onMoment: () -> Void
 
@@ -139,13 +147,13 @@ private struct EncounterRow: View {
 
             HStack(spacing: 8) {
                 if let judgment = encounter.judgment {
-                    Text(judgment == "confirmed" ? "You didn't know this" : "You dismissed this")
+                    Text(judgment == "confirmed" ? "You said you didn't know this" : "You knew this")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Color.inkFaint)
                 } else {
-                    Button("I didn't know it") { onJudge(.confirm) }
+                    Button { onJudge(.confirm) } label: { KeyHint(label: "I didn't know this", key: isNext ? "D" : nil) }
                         .buttonStyle(.borderedProminent)
-                    Button("I knew it") { onJudge(.dismiss) }
+                    Button { onJudge(.dismiss) } label: { KeyHint(label: "I knew this", key: isNext ? "K" : nil) }
                         .buttonStyle(.bordered)
                 }
 
@@ -246,6 +254,24 @@ private struct MomentSheet: View {
                 failure = error.message
             } catch {
                 failure = "Could not replay that moment."
+            }
+        }
+    }
+}
+
+private struct KeyHint: View {
+    let label: String
+    let key: String?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(label)
+            if let key {
+                Text(key)
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
             }
         }
     }
