@@ -2,6 +2,7 @@
 //  UnrotMac
 
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 import UnrotKit
 
@@ -20,6 +21,8 @@ struct UnrotMacApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("Open unrot") { delegate.showMain() }
                     .keyboardShortcut("0")
+                Button("Triage") { delegate.showTriage() }
+                    .keyboardShortcut("j", modifiers: [.command, .option])
             }
             CommandGroup(after: .toolbar) {
                 Button("Reload") { Task { await delegate.store.load() } }
@@ -46,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
     private var statusItem: StatusItemController?
+    private lazy var triage = TriagePanel(store: store, quick: quick)
+    private var triageKey: HotKey?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         core.start()
@@ -55,6 +60,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             quick: quick,
             actions: .init(openMain: { [weak self] in self?.showMain() })
         )
+        // ⌥⌘J, system-wide. If another app already owns the chord this is
+        // nil, and triage is still reachable from the app menu.
+        triageKey = HotKey(keyCode: kVK_ANSI_J, modifiers: cmdKey | optionKey) { [weak self] in
+            self?.triage.toggle()
+        }
         showMain()
         // The ring needs a surface to show a count, even while the window is
         // closed, so the store is kept fresh here rather than only by the view.
@@ -62,6 +72,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func showMain() { main.show() }
+
+    func showTriage() { triage.show() }
 
     func showStatusItem() { statusItem?.isVisible = true }
 

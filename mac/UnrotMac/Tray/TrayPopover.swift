@@ -86,7 +86,7 @@ struct TrayPopover: View {
     }
 }
 
-private struct GapPeek: View {
+struct GapPeek: View {
     let concept: Concept
     let encounter: Encounter
 
