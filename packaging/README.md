@@ -56,3 +56,32 @@ one call, not a graph, so a plain OpenAI-compatible client would do.
 **`target_arch=None`** follows the building interpreter, so this produces an
 arm64 bundle on Apple silicon. A universal2 app needs a universal2 Python to
 freeze from; that is a Phase 6 problem, not a Phase 0 one.
+
+## Signing
+
+`sign-core.sh` signs the frozen core inside out: loose libraries, then each
+framework as a bundle, then `unrot-core` with `core.entitlements`. No `--deep`.
+The Xcode build phase and `release.sh` both call it, so there is one definition.
+
+The entitlements were settled by trying without them, signed ad hoc under the
+hardened runtime:
+
+| entitlements | result |
+|---|---|
+| none | does not start: dyld refuses `Python.framework`, "different Team IDs" |
+| `disable-library-validation` only | starts, serves, every late import loads |
+
+`allow-jit` and `allow-unsigned-executable-memory` are not needed, so the core
+does not have them. Under one Developer ID team, library validation should pass
+without the exception too; it is kept so a development build and a release load
+libraries the same way. The Swift app itself carries no code-signing exceptions.
+
+## Releasing
+
+```bash
+DEVELOPER_ID="Developer ID Application: Your Name (TEAMID)" NOTARY_PROFILE=unrot-notary packaging/release.sh --check
+```
+
+`--check` verifies the identity and the notarisation profile and stops. Without
+it the script freezes the core, archives, verifies the signatures, notarises,
+staples and zips. **It has not been run end to end** — see its header.

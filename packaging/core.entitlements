@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The only entitlement the frozen core needs, established by trying
+	     without it rather than by assumption.
+
+	     Signed ad hoc under the hardened runtime with no entitlements, the
+	     core does not start: dyld refuses the embedded Python.framework because
+	     "mapping process and mapped file (non-platform) have different Team
+	     IDs" - ad-hoc signatures carry no Team ID at all. With this one
+	     entitlement it starts, serves, and every late import loads.
+
+	     allow-jit and allow-unsigned-executable-memory were tried out and are
+	     not needed for start-up or for importing the whole stack.
+
+	     Under a single Developer ID team every piece shares a Team ID and
+	     library validation passes on its own, so a release could drop this too.
+	     It is kept so that a development build and a release load libraries the
+	     same way - a difference there would only ever show up after
+	     notarisation. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>

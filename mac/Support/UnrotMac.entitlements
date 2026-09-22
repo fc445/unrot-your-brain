@@ -5,17 +5,13 @@
 	<!-- Not sandboxed, and that is a decision rather than an omission. The app
 	     spawns a bundled interpreter and reads ~/.claude and ~/.unrot; the
 	     sandboxed version of that is survivable but expensive, and PR-29 parks
-	     the question until phase 6 deliberately. Recorded here so the next
-	     person finds the reasoning rather than an empty file. -->
+	     the question until distribution deliberately.
+
+	     No code-signing exceptions. The Swift app needs none under the hardened
+	     runtime; the frozen core it launches has its own, narrower file at
+	     packaging/core.entitlements, so neither binary carries what only the
+	     other needs. -->
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
-	<!-- Hardened runtime is on. A frozen Python writes and maps its own code
-	     pages, which the default hardened runtime forbids. -->
-	<key>com.apple.security.cs.allow-jit</key>
-	<true/>
-	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-	<true/>
-	<key>com.apple.security.cs.disable-library-validation</key>
-	<true/>
 </dict>
 </plist>

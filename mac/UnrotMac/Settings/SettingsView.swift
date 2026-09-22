@@ -4,6 +4,7 @@
 //  The settings window. Phase 5 adds the capture folder, the model and the key;
 //  this is what phases 4 and 4b need.
 
+import ServiceManagement
 import SwiftUI
 import UnrotKit
 
@@ -214,6 +215,7 @@ private struct WatchingPane: View {
     var body: some View {
         Form {
             Section {
+                OpenAtLogin()
                 Toggle("Capture sessions when they finish", isOn: Binding(
                     get: { !watcher.paused },
                     set: { watcher.paused = !$0 }
@@ -398,5 +400,33 @@ private struct CapturePane: View {
             }
         }
         return ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
+    }
+}
+
+/// The watcher only watches while the app is running, so starting with the Mac
+/// is part of watching rather than a convenience. `SMAppService` rather than a
+/// hand-written LaunchAgent plist: the system owns the registration, lists it
+/// in System Settings › Login Items where the user can see and revoke it, and
+/// there is no file of ours left behind in ~/Library if the app is deleted.
+private struct OpenAtLogin: View {
+    @State private var enabled = SMAppService.mainApp.status == .enabled
+    @State private var problem: String?
+
+    var body: some View {
+        Toggle("Open unrot at login", isOn: Binding(
+            get: { enabled },
+            set: { on in
+                do {
+                    if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+                    problem = nil
+                } catch {
+                    problem = error.localizedDescription
+                }
+                enabled = SMAppService.mainApp.status == .enabled
+            }
+        ))
+        if let problem {
+            Text(problem).font(.system(size: 11)).foregroundStyle(Color.inkSoft)
+        }
     }
 }
