@@ -398,3 +398,60 @@ def test_since_leaves_out_what_came_before(conn, raw):
     analyse(conn, raw)
     rows = export.build(conn, raw=raw, since="2999-01-01")
     assert all(not rows[name] for name in export.FILES)
+
+
+# ---------------------------------------------------------------------------
+# From the app
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def app_home(conn, raw, home, monkeypatch):
+    monkeypatch.setenv("UNROT_HOME", str(home))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-SECRET-KEY-ZQX")
+    _private_store(conn, raw, home)
+    return home
+
+
+def test_the_preview_says_what_is_in_and_out_before_anything_is_written(app_home):
+    body = TestClient(create_app()).get("/api/export/preview").json()
+    assert body["filename"].startswith("unrot-export-") and body["filename"].endswith(".zip")
+    rows = {f["name"]: f["rows"] for f in body["files"]}
+    assert rows["flags.jsonl"] == 1 and rows["detections.jsonl"] == 3
+    assert body["withheld"] and body["never"] and body["included"]
+    assert not [p for p in app_home.rglob("*") if p.name.startswith("unrot-export")]
+
+    with_text = TestClient(create_app()).get("/api/export/preview", params={"include_text": True}).json()
+    assert with_text["withheld"] == []
+
+
+def test_the_app_gets_a_zip_it_can_save(app_home):
+    import io
+    import zipfile
+
+    response = TestClient(create_app()).post("/api/export")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert "unrot-export-" in response.headers["content-disposition"]
+
+    bundle = zipfile.ZipFile(io.BytesIO(response.content))
+    names = bundle.namelist()
+    [root] = {n.split("/", 1)[0] for n in names}
+    assert root.startswith("unrot-export-")
+    assert {n.split("/", 1)[1] for n in names} == {"README.md", "manifest.json"} | {
+        f"{name}.jsonl" for name in export.FILES
+    }
+    everything = "\n".join(bundle.read(n).decode("utf-8") for n in names)
+    for secret in (SECRET_ANSWER, SECRET_BODY, SECRET_EXCERPT, "sk-or-SECRET-KEY-ZQX", str(app_home)):
+        assert secret not in everything, secret
+
+
+def test_the_zip_includes_text_only_when_asked(app_home):
+    import io
+    import zipfile
+
+    response = TestClient(create_app()).post("/api/export", params={"include_text": True})
+    bundle = zipfile.ZipFile(io.BytesIO(response.content))
+    everything = "\n".join(bundle.read(n).decode("utf-8") for n in bundle.namelist())
+    assert SECRET_ANSWER in everything
+    assert "sk-or-SECRET-KEY-ZQX" not in everything

@@ -503,6 +503,28 @@ def manifest(
     }
 
 
+def contents(
+    conn: sqlite3.Connection,
+    *,
+    raw: sqlite3.Connection | None = None,
+    since: str | None = None,
+    include_text: bool = False,
+    config=None,
+) -> tuple[dict[str, bytes], dict]:
+    """Every file in the bundle, by name, and the manifest. Nothing is written."""
+    rows = build(conn, raw=raw, since=since, include_text=include_text)
+    files = {
+        f"{name}.jsonl": "".join(
+            json.dumps(row, sort_keys=True, ensure_ascii=False) + "\n" for row in rows[name]
+        ).encode("utf-8")
+        for name in FILES
+    }
+    meta = manifest(rows, since=since, include_text=include_text, config=config)
+    files["manifest.json"] = (json.dumps(meta, indent=2) + "\n").encode("utf-8")
+    files["README.md"] = README.encode("utf-8")
+    return files, meta
+
+
 def write(
     conn: sqlite3.Connection,
     out: Path | str,
@@ -518,12 +540,61 @@ def write(
         raise FileExistsError(f"{out} is not empty; export into a new folder")
     out.mkdir(parents=True, exist_ok=True)
 
-    rows = build(conn, raw=raw, since=since, include_text=include_text)
-    for name in FILES:
-        with open(out / f"{name}.jsonl", "w", encoding="utf-8") as handle:
-            for row in rows[name]:
-                handle.write(json.dumps(row, sort_keys=True, ensure_ascii=False) + "\n")
-    meta = manifest(rows, since=since, include_text=include_text, config=config)
-    (out / "manifest.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
-    (out / "README.md").write_text(README, encoding="utf-8")
+    files, meta = contents(conn, raw=raw, since=since, include_text=include_text, config=config)
+    for name, data in files.items():
+        (out / name).write_bytes(data)
     return meta
+
+
+def folder_name(now: datetime | None = None) -> str:
+    """`unrot-export-2026-09-23`: what the bundle unpacks to, dated by export day."""
+    return f"unrot-export-{(now or datetime.now(timezone.utc)).date().isoformat()}"
+
+
+def archive(
+    conn: sqlite3.Connection,
+    *,
+    raw: sqlite3.Connection | None = None,
+    since: str | None = None,
+    include_text: bool = False,
+    config=None,
+) -> tuple[bytes, dict]:
+    """The bundle as one `.zip`, unpacking to a single dated folder. Built in memory.
+
+    For the app: the core hands back bytes and the app saves them where the
+    person chose, so the API never gains the ability to write to a path it
+    was given.
+    """
+    import io
+    import zipfile
+
+    files, meta = contents(conn, raw=raw, since=since, include_text=include_text, config=config)
+    root = folder_name()
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        for name, data in files.items():
+            bundle.writestr(f"{root}/{name}", data)
+    return buffer.getvalue(), meta
+
+
+#: What an export leaves out unless text is asked for, worded for the button.
+WITHHELD = [
+    "Explanations you wrote, and the questions they answered",
+    "The grader's comments on your explanations",
+    "Learning material text, and excerpts from your code and sessions",
+]
+
+#: What an export never contains, whatever is ticked.
+NEVER = [
+    "Your API key, or any environment value",
+    "Transcripts, or the copies kept in ~/.unrot/raw",
+    "Full file paths: folders are cut to the repo name, code paths to the file name",
+]
+
+#: What an export always contains, worded for the button.
+INCLUDED = [
+    "The event log: every flag, verdict, filing decision, grade and model call",
+    "Flagged terms, their paraphrases and line numbers",
+    "Each detector run in full, with the model and version that made it",
+    "What each model call cost and how long it took",
+]

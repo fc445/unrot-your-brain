@@ -29,7 +29,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
@@ -44,6 +44,8 @@ from .schemas import (
     ConceptOut,
     CorrectedOut,
     EncounterOut,
+    ExportFileOut,
+    ExportPreviewOut,
     ExplanationOut,
     GradedOut,
     HealthOut,
@@ -965,6 +967,50 @@ def create_app() -> FastAPI:
             grader="classifier" if graded_by_model else "keyword",
             detector_version=detector_version(current.label),
             leaves_this_mac=[] if local else LEAVES_THIS_MAC,
+        )
+
+    @app.get("/api/export/preview", response_model=ExportPreviewOut)
+    def export_preview(include_text: bool = False) -> ExportPreviewOut:
+        """What "Export for analysis" would write, shown before anything is. Reads only."""
+        from .. import export
+        from ..model import ModelConfig
+
+        with stores() as (conn, raw):
+            files, meta = export.contents(
+                conn, raw=raw, include_text=include_text, config=ModelConfig.from_env()
+            )
+        return ExportPreviewOut(
+            include_text=include_text,
+            filename=f"{export.folder_name()}.zip",
+            files=[ExportFileOut(name=name, rows=n) for name, n in meta["files"].items()],
+            fixture_events=meta["fixture_events"],
+            first_event_at=meta["first_event_at"],
+            last_event_at=meta["last_event_at"],
+            included=export.INCLUDED,
+            withheld=[] if include_text else export.WITHHELD,
+            never=export.NEVER,
+        )
+
+    @app.post("/api/export")
+    def export_bundle(include_text: bool = False) -> Response:
+        """The bundle as a `.zip`, returned rather than written.
+
+        The app saves it where the person chose. The core never writes it
+        anywhere itself, so this endpoint cannot be pointed at a path.
+        """
+        from .. import export
+        from ..model import ModelConfig
+
+        with stores() as (conn, raw):
+            data, _meta = export.archive(
+                conn, raw=raw, include_text=include_text, config=ModelConfig.from_env()
+            )
+        return Response(
+            content=data,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{export.folder_name()}.zip"'
+            },
         )
 
     @app.get("/api/regen/plan", response_model=RegenPlanOut)
