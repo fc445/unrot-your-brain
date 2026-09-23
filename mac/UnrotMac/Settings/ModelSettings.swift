@@ -22,6 +22,27 @@ final class ModelSettings {
         }
     }
 
+    /// How long a reasoning model may think before it answers. OpenRouter's
+    /// `reasoning.effort`; ignored by models that do not reason, and never sent
+    /// to a local server.
+    enum Effort: String, CaseIterable, Identifiable {
+        /// Nothing set here: the core's default, which is low.
+        case core = ""
+        case low, medium, high
+        /// Send nothing, and let the model think as long as it likes.
+        case model = "default"
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .core: "Default (low)"
+            case .low: "Low"
+            case .medium: "Medium"
+            case .high: "High"
+            case .model: "Model decides"
+            }
+        }
+    }
+
     static let keyAccount = "OPENROUTER_API_KEY"
 
     var endpoint: Endpoint { didSet { save(); changed = true } }
@@ -29,6 +50,7 @@ final class ModelSettings {
     var customURL: String { didSet { save(); changed = true } }
     /// Empty means the core's own default.
     var model: String { didSet { save(); changed = true } }
+    var effort: Effort { didSet { save(); changed = true } }
     private(set) var hasKey: Bool
 
     /// Settings differ from what the running core was started with.
@@ -41,6 +63,7 @@ final class ModelSettings {
         localURL = defaults.string(forKey: "UnrotLocalURL") ?? "http://localhost:11434/v1"
         customURL = defaults.string(forKey: "UnrotCustomURL") ?? ""
         model = defaults.string(forKey: "UnrotModel") ?? ""
+        effort = Effort(rawValue: defaults.string(forKey: "UnrotReasoningEffort") ?? "") ?? .core
         hasKey = Keychain.has(Self.keyAccount)
     }
 
@@ -76,6 +99,12 @@ final class ModelSettings {
         if !model.trimmingCharacters(in: .whitespaces).isEmpty {
             env["UNROT_MODEL"] = model.trimmingCharacters(in: .whitespaces)
         }
+        switch effort {
+        case .core: break
+        // Empty tells the core to send no effort at all.
+        case .model: env["UNROT_REASONING_EFFORT"] = ""
+        default: env["UNROT_REASONING_EFFORT"] = effort.rawValue
+        }
         if endpoint == .local {
             // A local server wants a key to be present and ignores its value.
             // Never the real one: handing an OpenRouter key to whatever is
@@ -92,5 +121,6 @@ final class ModelSettings {
         defaults.set(localURL, forKey: "UnrotLocalURL")
         defaults.set(customURL, forKey: "UnrotCustomURL")
         defaults.set(model, forKey: "UnrotModel")
+        defaults.set(effort.rawValue, forKey: "UnrotReasoningEffort")
     }
 }

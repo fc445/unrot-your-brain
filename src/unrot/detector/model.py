@@ -9,11 +9,15 @@ not the config dataclass.
 
 from __future__ import annotations
 
+import json
+
 from ..model import (
     DEFAULT_BASE_URL,
     DEFAULT_MODEL,
     ModelConfig,
+    ran_out_of_room,
     structured_client,
+    truncated_output,
 )
 
 __all__ = ["DEFAULT_BASE_URL", "DEFAULT_MODEL", "ModelConfig", "build_proposer"]
@@ -51,7 +55,44 @@ def build_proposer(config: ModelConfig):
     client = structured_client(config, Proposal)
 
     def propose(prompt_text: str) -> list[dict]:
-        result = client.invoke(prompt_text)
+        try:
+            result = client.invoke(prompt_text)
+        except Exception as exc:
+            # Out of room *while answering*: with reasoning off this model can
+            # list candidates without stopping, well past the "at most 2" it was
+            # asked for. The entries before the cut are complete and valid, and
+            # the detector ranks and keeps only the strongest anyway.
+            kept = []
+            if ran_out_of_room(exc):
+                for item in complete_candidates(truncated_output(exc)):
+                    try:
+                        kept.append(ProposedCandidate.model_validate(item).model_dump())
+                    except ValueError:
+                        continue
+            if not kept:
+                raise
+            return kept
         return [c.model_dump() for c in result.candidates]
 
     return propose
+
+
+def complete_candidates(text: str) -> list[dict]:
+    """The whole entries at the front of a `{"candidates": [...` cut off mid-list."""
+    start = text.find("[", text.find('"candidates"'))
+    if '"candidates"' not in text or start < 0:
+        return []
+    decoder = json.JSONDecoder()
+    kept: list[dict] = []
+    at = start + 1
+    while True:
+        while at < len(text) and text[at] in " \t\r\n,":
+            at += 1
+        if at >= len(text) or text[at] != "{":
+            return kept
+        try:
+            item, at = decoder.raw_decode(text, at)
+        except json.JSONDecodeError:
+            return kept  # the one the ceiling cut through
+        if isinstance(item, dict):
+            kept.append(item)

@@ -869,6 +869,7 @@ def create_app() -> FastAPI:
             local=local,
             grader="classifier" if graded_by_model else "keyword",
             detector_version=detector_version(current.label),
+            reasoning_effort=current.reasoning_effort if current.sends_reasoning else None,
             leaves_this_mac=[] if local else LEAVES_THIS_MAC,
         )
 

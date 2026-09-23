@@ -377,6 +377,9 @@ public struct CoreConfig: Codable, Hashable, Sendable {
     /// `classifier` or `keyword`.
     public let grader: String
     public let detectorVersion: String
+    /// Nil when no effort is sent: a local server, or the model left to decide.
+    /// Optional so an older core still decodes.
+    public let reasoningEffort: String?
     /// Empty when the endpoint is local.
     public let leavesThisMac: [String]
 }

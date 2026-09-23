@@ -321,6 +321,17 @@ struct ModelPane: View {
             }
             if settings.endpoint != .local {
                 VStack(alignment: .leading, spacing: 6) {
+                    Text("Reasoning effort").font(.system(size: 13, weight: .semibold))
+                    Picker("", selection: $settings.effort) {
+                        ForEach(ModelSettings.Effort.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    Text("How long a reasoning model thinks before it answers. More can find subtler gaps; it is also slower and costs more, and on a long session it can run out of room before answering. Ignored by models that do not reason.")
+                        .font(.system(size: 11.5)).foregroundStyle(Color.inkFaint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                VStack(alignment: .leading, spacing: 6) {
                     Text("API key").font(.system(size: 13, weight: .semibold))
                     HStack(spacing: 8) {
                         SecureField("", text: $key, prompt: Text(settings.hasKey ? "A key is stored — paste to replace it" : "Paste your OpenRouter key").foregroundStyle(Color.inkFaint))

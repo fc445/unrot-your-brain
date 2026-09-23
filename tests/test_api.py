@@ -706,7 +706,93 @@ def test_a_reasoning_model_is_asked_to_think_briefly(monkeypatch):
 def test_running_out_of_output_is_said_in_words():
     from unrot.model import describe_failure
 
-    LengthFinishReasonError = type("LengthFinishReasonError", (Exception,), {})
-    message = describe_failure(LengthFinishReasonError("CompletionUsage(completion_tokens=32768 ...)"))
+    message = describe_failure(_ran_out(content="", reasoning="..."))
     assert "CompletionUsage" not in message
-    assert "UNROT_REASONING_EFFORT" in message
+    assert "reasoning effort" in message
+
+
+# -- A model that will not stop -------------------------------------------------
+#
+# Shaped like the real failures: the OpenAI client raises LengthFinishReasonError
+# with the billed response attached as `.completion`.
+
+
+class LengthFinishReasonError(Exception):
+    pass
+
+
+def _ran_out(*, content: str, reasoning: str) -> Exception:
+    from types import SimpleNamespace
+
+    message = SimpleNamespace(content=content, model_extra={"reasoning": reasoning})
+    error = LengthFinishReasonError("CompletionUsage(completion_tokens=32768 ...)")
+    error.completion = SimpleNamespace(choices=[SimpleNamespace(message=message)])
+    return error
+
+
+class _Scripted:
+    """A client that answers from a script and remembers what it was asked."""
+
+    def __init__(self, *answers):
+        self.answers = list(answers)
+        self.prompts: list[str] = []
+
+    def invoke(self, prompt):
+        self.prompts.append(prompt)
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+def test_a_model_that_never_stops_thinking_is_asked_to_answer_with_its_notes():
+    """2 of 5 real calls reasoned for 32k tokens and wrote nothing. The retry
+    answers with reasoning off, given the tail of its own notes."""
+    from unrot.model import Structured
+
+    primary = _Scripted(_ran_out(content="", reasoning="...Empty list. Done. I'm submitting this."))
+    forced = _Scripted("the answer")
+    assert Structured(primary, forced).invoke("PROMPT") == "the answer"
+    assert forced.prompts[0].startswith("PROMPT")
+    assert "Empty list. Done." in forced.prompts[0]
+    assert "Write the answer now" in forced.prompts[0]
+
+
+def test_other_failures_are_not_retried():
+    from unrot.model import Structured
+
+    primary = _Scripted(RuntimeError("401 unauthorised"))
+    forced = _Scripted("never used")
+    with pytest.raises(RuntimeError, match="401"):
+        Structured(primary, forced).invoke("PROMPT")
+    assert forced.prompts == []
+
+
+def test_a_list_cut_off_by_the_ceiling_keeps_its_complete_entries():
+    """With reasoning off the model listed candidates until the ceiling cut one
+    in half. Everything before the cut is whole and usable."""
+    from unrot.detector.model import complete_candidates
+
+    entry = '{"term":"undo","paraphrase":"p","assistant_line":14,"signal":"accepted","importance":"central"}'
+    cut = '{"candidates":[' + entry + ", " + entry.replace("undo", "NSEvent") + ',{"term":"PR-13","parap'
+    assert [c["term"] for c in complete_candidates(cut)] == ["undo", "NSEvent"]
+    assert complete_candidates('{"candidates":[{"term":"hal') == []
+    assert complete_candidates("") == []
+
+
+def test_the_detector_uses_a_cut_off_answer_rather_than_failing_the_session(monkeypatch):
+    from unrot.detector import model as detector_model
+
+    entry = '{"term":"undo","paraphrase":"p","assistant_line":14,"signal":"accepted","importance":"central"}'
+    cut = '{"candidates":[' + entry + ',{"term":"PR-13","parap'
+    failing = _Scripted(_ran_out(content=cut, reasoning=""))
+    monkeypatch.setattr(detector_model, "structured_client", lambda config, schema: failing)
+    propose = detector_model.build_proposer(detector_model.ModelConfig(api_key="k"))
+    assert [c["term"] for c in propose("PROMPT")] == ["undo"]
+
+    # Nothing complete to keep: the failure stands, and the session stays pending.
+    empty = _Scripted(_ran_out(content='{"candidates":[{"te', reasoning=""))
+    monkeypatch.setattr(detector_model, "structured_client", lambda config, schema: empty)
+    propose = detector_model.build_proposer(detector_model.ModelConfig(api_key="k"))
+    with pytest.raises(LengthFinishReasonError):
+        propose("PROMPT")

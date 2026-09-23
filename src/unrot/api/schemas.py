@@ -272,6 +272,9 @@ class ConfigOut(BaseModel):
     #: 'classifier' | 'keyword'
     grader: str
     detector_version: str
+    #: OpenRouter `reasoning.effort` sent with each call; None when nothing is
+    #: sent (a local server, or the model left to decide).
+    reasoning_effort: str | None = None
     #: What each kind of model call sends off this machine, stated by the code
     #: that sends it. Empty when the endpoint is local.
     leaves_this_mac: list[str] = Field(default_factory=list)
