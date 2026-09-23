@@ -232,6 +232,60 @@ def test_analysed_and_clean_is_not_the_same_as_never_looked_at(client, home):
     assert looked["capture"]["sessions_clean"] == 9
 
 
+def _typed_in(home, sessions: list[str]) -> None:
+    """Give each session a turn a person typed, which is what makes it examinable."""
+    conn = sqlite3.connect(paths.raw_db_path(home))
+    for session in sessions:
+        conn.execute(
+            "INSERT INTO raw_turns (session_id, line_no, seq, role, text, is_meta,"
+            " is_sidechain, occurred_at) VALUES (?, 1, 0, 'user', 'hi', 0, 0, '2026-09-01')",
+            (session,),
+        )
+    conn.commit()
+    conn.close()
+
+
+def test_a_few_examined_with_many_waiting_is_not_clean(client, home):
+    """First run, mid-analysis: 3 of 5 examinable sessions looked at, nothing found.
+
+    "Silence here means we looked" would be false for the two nobody has looked
+    at yet, so this is not `clean`. And the count that matters is sessions a
+    person typed in -- all-tool sessions can never be examined, so counting them
+    as waiting would keep the surface from ever reaching clean.
+    """
+    make_raw(home, 7)
+    _typed_in(home, [f"s{index}" for index in range(5)])
+    conn = open_store(home)
+    for index in range(3):
+        record_analysis(
+            conn, f"s{index}", candidates_found=0, detector_version="detector/test",
+            recompile=index == 2,
+        )
+    conn.close()
+
+    body = client.get("/api/surface").json()
+    assert body["state"] == "not_analysed"
+    assert body["headline"] == "2 sessions waiting to be examined"
+    assert "Silence here means we looked" not in body["detail"]
+    assert body["capture"]["sessions"] == 7
+    assert body["capture"]["sessions_analysable"] == 5
+    assert body["capture"]["sessions_waiting"] == 2
+
+    conn = open_store(home)
+    for index in range(3, 5):
+        record_analysis(
+            conn, f"s{index}", candidates_found=0, detector_version="detector/test",
+            recompile=index == 4,
+        )
+    conn.close()
+
+    done = client.get("/api/surface").json()
+    assert done["state"] == "clean"
+    assert done["capture"]["sessions_waiting"] == 0
+    # Nothing was ever found, so there is no "everything else" to have dealt with.
+    assert "Everything else found" not in done["detail"]
+
+
 def test_failure_is_never_reported_as_an_empty_list(client, home, monkeypatch):
     """A broken backend must not look like a clean session.
 

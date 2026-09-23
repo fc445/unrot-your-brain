@@ -132,6 +132,11 @@ export interface Capture {
    *  session and an unexamined one are the same absence of rows. */
   sessions_analysed: number;
   sessions_clean: number;
+  /** Sessions with something a person typed -- the only ones the detector
+   *  can examine -- and how many of those are still waiting. `sessions`
+   *  counts all-tool sessions too, so it is the wrong denominator. */
+  sessions_analysable?: number;
+  sessions_waiting?: number;
 }
 
 export interface Surface {

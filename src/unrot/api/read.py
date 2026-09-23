@@ -278,6 +278,14 @@ class Capture:
     #: is what lets silence here mean "we looked" rather than "no rows".
     sessions_analysed: int
     sessions_clean: int
+    #: Sessions with something a person typed -- the only ones the detector can
+    #: examine -- and how many of those are still waiting to be. The waiting
+    #: count is `analyse.pending`, the watcher's own queue, so the surface and
+    #: the queue cannot disagree about what has been looked at.
+    sessions_analysable: int = 0
+    sessions_waiting: int = 0
+    #: Of the waiting, how many were examined once and have carried on since.
+    sessions_grown: int = 0
 
 
 @dataclass
@@ -304,10 +312,17 @@ def capture_stats(raw_conn: sqlite3.Connection | None, conn: sqlite3.Connection)
         return Capture(0, 0, None, analysed, clean)
     row = raw_conn.execute("SELECT count(*) AS n FROM raw_sessions").fetchone()
     turns = raw_conn.execute(
-        "SELECT count(*) AS n, max(occurred_at) AS last FROM raw_turns"
+        "SELECT count(*) AS n, count(DISTINCT session_id) AS sessions,"
+        "       max(occurred_at) AS last FROM raw_turns"
         " WHERE role = 'user' AND is_meta = 0 AND is_sidechain = 0"
     ).fetchone()
-    return Capture(row["n"], turns["n"], turns["last"], analysed, clean)
+    from ..analyse import pending
+
+    waiting = pending(conn, raw_conn)
+    grown = sum(1 for p in waiting if p.reason == "grown")
+    return Capture(
+        row["n"], turns["n"], turns["last"], analysed, clean, turns["sessions"], len(waiting), grown
+    )
 
 
 def _count(n: int, noun: str) -> str:
@@ -370,6 +385,25 @@ def surface(
             "Each of these was leaned on in a session and waved through."
             " Say whether you actually knew it.",
         )
+    elif stats.sessions_waiting:
+        # Some examined, more not. Neither "clean" nor "cold start" is true yet:
+        # a quiet list here is mostly a list nothing has looked at.
+        found_nothing = stats.sessions_clean == stats.sessions_analysed
+        state, headline, detail = (
+            "not_analysed",
+            f"{_count(stats.sessions_waiting, 'session')} waiting to be examined",
+            f"{_count(stats.sessions_analysed, 'session')} examined so far"
+            + (", nothing worth flagging in any of them." if found_nothing else ".")
+            + (
+                f" {stats.sessions_grown} of the waiting "
+                + ("was examined before and has" if stats.sessions_grown == 1
+                   else "were examined before and have")
+                + " carried on since."
+                if stats.sessions_grown else ""
+            )
+            + " Until the rest have been looked at, an empty list here says nothing"
+            " either way.",
+        )
     elif stats.sessions_analysed < COLD_START_SESSIONS:
         state, headline, detail = (
             "cold_start",
@@ -385,8 +419,10 @@ def surface(
             "clean",
             "Nothing waiting on you",
             f"{_count(stats.sessions_analysed, 'session')} examined, {stats.sessions_clean}"
-            " of them with nothing worth flagging. Everything else found has been"
-            " dealt with. Silence here means we looked.",
+            " of them with nothing worth flagging."
+            + (" Everything else found has been dealt with."
+               if stats.sessions_clean < stats.sessions_analysed else "")
+            + " Silence here means we looked.",
         )
 
     return Surface(

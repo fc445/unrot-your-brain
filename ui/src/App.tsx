@@ -133,8 +133,8 @@ export default function App() {
         tally={
           <>
             <span>
-              <b>{capture.sessions_analysed}</b> of {capture.sessions} sessions
-              examined
+              <b>{capture.sessions_analysed}</b> of{" "}
+              {capture.sessions_analysable ?? capture.sessions} sessions examined
             </span>
             <span>
               <b>{counts.open ?? 0}</b> waiting

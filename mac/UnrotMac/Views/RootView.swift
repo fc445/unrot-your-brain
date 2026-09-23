@@ -180,7 +180,8 @@ struct RootView: View {
 
     /// "31 of 34 sessions examined · last activity Thursday 19:42".
     private func meta(_ surface: Surface) -> String {
-        var line = "\(surface.capture.sessionsAnalysed) of \(surface.capture.sessions) sessions examined"
+        let capture = surface.capture
+        var line = "\(capture.sessionsAnalysed) of \(capture.sessionsAnalysable ?? capture.sessions) sessions examined"
         if let last = Dates.recent(surface.capture.lastActivity) { line += " · last activity \(last)" }
         return line
     }

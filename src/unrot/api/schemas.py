@@ -110,6 +110,9 @@ class CaptureOut(BaseModel):
     last_activity: str | None = None
     sessions_analysed: int
     sessions_clean: int
+    sessions_analysable: int = 0
+    sessions_waiting: int = 0
+    sessions_grown: int = 0
 
 
 class SurfaceOut(BaseModel):
