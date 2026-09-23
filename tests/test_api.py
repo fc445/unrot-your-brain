@@ -232,6 +232,60 @@ def test_analysed_and_clean_is_not_the_same_as_never_looked_at(client, home):
     assert looked["capture"]["sessions_clean"] == 9
 
 
+def _typed_in(home, sessions: list[str]) -> None:
+    """Give each session a turn a person typed, which is what makes it examinable."""
+    conn = sqlite3.connect(paths.raw_db_path(home))
+    for session in sessions:
+        conn.execute(
+            "INSERT INTO raw_turns (session_id, line_no, seq, role, text, is_meta,"
+            " is_sidechain, occurred_at) VALUES (?, 1, 0, 'user', 'hi', 0, 0, '2026-09-01')",
+            (session,),
+        )
+    conn.commit()
+    conn.close()
+
+
+def test_a_few_examined_with_many_waiting_is_not_clean(client, home):
+    """First run, mid-analysis: 3 of 5 examinable sessions looked at, nothing found.
+
+    "Silence here means we looked" would be false for the two nobody has looked
+    at yet, so this is not `clean`. And the count that matters is sessions a
+    person typed in -- all-tool sessions can never be examined, so counting them
+    as waiting would keep the surface from ever reaching clean.
+    """
+    make_raw(home, 7)
+    _typed_in(home, [f"s{index}" for index in range(5)])
+    conn = open_store(home)
+    for index in range(3):
+        record_analysis(
+            conn, f"s{index}", candidates_found=0, detector_version="detector/test",
+            recompile=index == 2,
+        )
+    conn.close()
+
+    body = client.get("/api/surface").json()
+    assert body["state"] == "not_analysed"
+    assert body["headline"] == "2 sessions waiting to be examined"
+    assert "Silence here means we looked" not in body["detail"]
+    assert body["capture"]["sessions"] == 7
+    assert body["capture"]["sessions_analysable"] == 5
+    assert body["capture"]["sessions_waiting"] == 2
+
+    conn = open_store(home)
+    for index in range(3, 5):
+        record_analysis(
+            conn, f"s{index}", candidates_found=0, detector_version="detector/test",
+            recompile=index == 4,
+        )
+    conn.close()
+
+    done = client.get("/api/surface").json()
+    assert done["state"] == "clean"
+    assert done["capture"]["sessions_waiting"] == 0
+    # Nothing was ever found, so there is no "everything else" to have dealt with.
+    assert "Everything else found" not in done["detail"]
+
+
 def test_failure_is_never_reported_as_an_empty_list(client, home, monkeypatch):
     """A broken backend must not look like a clean session.
 
@@ -629,3 +683,116 @@ def test_fixtures_go_through_the_same_write_path_as_everything_else(home):
             "SELECT provenance FROM events WHERE event_type = 'encounter_recorded'"
         )
     )
+
+
+def test_a_reasoning_model_is_asked_to_think_briefly(monkeypatch):
+    """Left to its default, ling-3.0-flash reasoned for 32,768 tokens over one
+    real transcript chunk and never answered. The config caps both."""
+    from unrot.model import ModelConfig
+
+    monkeypatch.delenv("UNROT_REASONING_EFFORT", raising=False)
+    config = ModelConfig.from_env(api_key="k")
+    assert config.reasoning_effort == "low"
+    assert config.sends_reasoning
+    assert config.max_tokens <= 16_000
+    # The default leaves version strings as they were; a change shows in them.
+    assert config.label == config.model.replace("/", "-")
+    monkeypatch.setenv("UNROT_REASONING_EFFORT", "high")
+    assert ModelConfig.from_env(api_key="k").label.endswith("+reasoning-high")
+    # A local server is not sent OpenRouter's parameter.
+    assert not ModelConfig.from_env(api_key="k", base_url="http://localhost:11434/v1").sends_reasoning
+
+
+def test_running_out_of_output_is_said_in_words():
+    from unrot.model import describe_failure
+
+    message = describe_failure(_ran_out(content="", reasoning="..."))
+    assert "CompletionUsage" not in message
+    assert "reasoning effort" in message
+
+
+# -- A model that will not stop -------------------------------------------------
+#
+# Shaped like the real failures: the OpenAI client raises LengthFinishReasonError
+# with the billed response attached as `.completion`.
+
+
+class LengthFinishReasonError(Exception):
+    pass
+
+
+def _ran_out(*, content: str, reasoning: str) -> Exception:
+    from types import SimpleNamespace
+
+    message = SimpleNamespace(content=content, model_extra={"reasoning": reasoning})
+    error = LengthFinishReasonError("CompletionUsage(completion_tokens=32768 ...)")
+    error.completion = SimpleNamespace(choices=[SimpleNamespace(message=message)])
+    return error
+
+
+class _Scripted:
+    """A client that answers from a script and remembers what it was asked."""
+
+    def __init__(self, *answers):
+        self.answers = list(answers)
+        self.prompts: list[str] = []
+
+    def invoke(self, prompt):
+        self.prompts.append(prompt)
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+def test_a_model_that_never_stops_thinking_is_asked_to_answer_with_its_notes():
+    """2 of 5 real calls reasoned for 32k tokens and wrote nothing. The retry
+    answers with reasoning off, given the tail of its own notes."""
+    from unrot.model import Structured
+
+    primary = _Scripted(_ran_out(content="", reasoning="...Empty list. Done. I'm submitting this."))
+    forced = _Scripted("the answer")
+    assert Structured(primary, forced).invoke("PROMPT") == "the answer"
+    assert forced.prompts[0].startswith("PROMPT")
+    assert "Empty list. Done." in forced.prompts[0]
+    assert "Write the answer now" in forced.prompts[0]
+
+
+def test_other_failures_are_not_retried():
+    from unrot.model import Structured
+
+    primary = _Scripted(RuntimeError("401 unauthorised"))
+    forced = _Scripted("never used")
+    with pytest.raises(RuntimeError, match="401"):
+        Structured(primary, forced).invoke("PROMPT")
+    assert forced.prompts == []
+
+
+def test_a_list_cut_off_by_the_ceiling_keeps_its_complete_entries():
+    """With reasoning off the model listed candidates until the ceiling cut one
+    in half. Everything before the cut is whole and usable."""
+    from unrot.detector.model import complete_candidates
+
+    entry = '{"term":"undo","paraphrase":"p","assistant_line":14,"signal":"accepted","importance":"central"}'
+    cut = '{"candidates":[' + entry + ", " + entry.replace("undo", "NSEvent") + ',{"term":"PR-13","parap'
+    assert [c["term"] for c in complete_candidates(cut)] == ["undo", "NSEvent"]
+    assert complete_candidates('{"candidates":[{"term":"hal') == []
+    assert complete_candidates("") == []
+
+
+def test_the_detector_uses_a_cut_off_answer_rather_than_failing_the_session(monkeypatch):
+    from unrot.detector import model as detector_model
+
+    entry = '{"term":"undo","paraphrase":"p","assistant_line":14,"signal":"accepted","importance":"central"}'
+    cut = '{"candidates":[' + entry + ',{"term":"PR-13","parap'
+    failing = _Scripted(_ran_out(content=cut, reasoning=""))
+    monkeypatch.setattr(detector_model, "structured_client", lambda config, schema, **_: failing)
+    propose = detector_model.build_proposer(detector_model.ModelConfig(api_key="k"))
+    assert [c["term"] for c in propose("PROMPT")] == ["undo"]
+
+    # Nothing complete to keep: the failure stands, and the session stays pending.
+    empty = _Scripted(_ran_out(content='{"candidates":[{"te', reasoning=""))
+    monkeypatch.setattr(detector_model, "structured_client", lambda config, schema, **_: empty)
+    propose = detector_model.build_proposer(detector_model.ModelConfig(api_key="k"))
+    with pytest.raises(LengthFinishReasonError):
+        propose("PROMPT")

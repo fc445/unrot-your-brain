@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .detector import detect
 from .detector.detect import DEFAULT_MAX_CANDIDATES
@@ -149,8 +149,13 @@ def _later(a: str | None, b: str | None) -> bool:
     if not a or not b:
         return False
     try:
-        return datetime.fromisoformat(a.replace("Z", "+00:00")) > datetime.fromisoformat(
-            b.replace("Z", "+00:00")
-        )
+        return _instant(a) > _instant(b)
     except ValueError:
         return a > b
+
+
+def _instant(text: str) -> datetime:
+    """An aware datetime. A stamp with no offset is read as UTC rather than
+    left naive, since comparing naive with aware raises instead of answering."""
+    when = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)

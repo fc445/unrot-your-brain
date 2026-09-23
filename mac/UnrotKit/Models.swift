@@ -203,6 +203,12 @@ public struct CaptureStats: Codable, Hashable, Sendable {
     /// nothing" is distinguishable from "nothing ever looked".
     public let sessionsAnalysed: Int
     public let sessionsClean: Int
+    /// Sessions with something a person typed, the only ones the detector can
+    /// examine, and how many of those are still waiting. `sessions` counts
+    /// all-tool sessions too, so it is the wrong denominator. Optional so an
+    /// older core still decodes.
+    public let sessionsAnalysable: Int?
+    public let sessionsWaiting: Int?
 }
 
 public struct Surface: Codable, Hashable, Sendable {
@@ -457,6 +463,9 @@ public struct CoreConfig: Codable, Hashable, Sendable {
     /// `classifier` or `keyword`.
     public let grader: String
     public let detectorVersion: String
+    /// Nil when no effort is sent: a local server, or the model left to decide.
+    /// Optional so an older core still decodes.
+    public let reasoningEffort: String?
     /// Empty when the endpoint is local.
     public let leavesThisMac: [String]
 }

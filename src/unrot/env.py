@@ -32,6 +32,14 @@ SETTINGS: dict[str, str] = {
         "OpenAI-compatible endpoint. Point at a local server to keep transcripts"
         " off the network entirely."
     ),
+    "UNROT_REASONING_EFFORT": (
+        "low | medium | high, or empty to let the model decide. OpenRouter only."
+        " Default low."
+    ),
+    "UNROT_MAX_TOKENS": (
+        "Output ceiling per call, reasoning included. Default 8000; a call that"
+        " hits it while thinking is asked once more to answer directly."
+    ),
     "LANGSMITH_API_KEY": "Optional. Traces the calls if LANGSMITH_TRACING is set.",
 }
 
