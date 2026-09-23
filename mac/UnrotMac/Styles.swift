@@ -137,13 +137,14 @@ struct StatusPill: View {
     private var label: String {
         if !core.status.isUp { return "Core not running" }
         if let progress = watcher.progress { return "Analysing \(progress.done + 1) of \(progress.total)" }
+        if !watcher.started { return "Not watching yet" }
         return watcher.paused ? "Paused" : "Watching"
     }
 
     private var tint: Color {
         if !core.status.isUp { return .alarm }
         if watcher.isRunning { return .bucketOpen }
-        return watcher.paused ? .inkFaint : .watching
+        return watcher.paused || !watcher.started ? .inkFaint : .watching
     }
 }
 

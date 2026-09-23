@@ -128,6 +128,8 @@ struct FirstRunView: View {
                 }
                 .buttonStyle(UnrotButton(weight: .primary))
                 .keyboardShortcut(.defaultAction)
+                // An empty key is a skip; make it the explicit one rather than a silent one.
+                .disabled(settings.endpoint == .hosted && key.isEmpty && !settings.hasKey)
             }
         }
     }

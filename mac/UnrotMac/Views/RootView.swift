@@ -28,15 +28,18 @@ struct RootView: View {
     @Environment(\.undoManager) private var undoManager
 
     private var waiting: [Concept] { store.concepts(in: .open) }
+    /// The watcher does not start until the first run is finished, so the bar must not
+    /// claim it is watching while the user is still being asked whether it may.
+    private var settingUp: Bool { onboarding.map { !$0.done } ?? false }
     private var focusedConcept: Concept? {
         waiting.first { $0.conceptId == focused } ?? waiting.first
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            TitleBar(watcher: watcher, core: core, addGap: addGap)
+            TitleBar(watcher: watcher, core: core, settingUp: settingUp, addGap: addGap)
             Divider()
-            if let onboarding, !onboarding.done, let modelSettings {
+            if let onboarding, settingUp, let modelSettings {
                 FirstRunView(onboarding: onboarding, watcher: watcher, settings: modelSettings)
             } else {
                 HStack(spacing: 0) {
@@ -203,6 +206,7 @@ struct RootView: View {
 private struct TitleBar: View {
     let watcher: Watcher
     let core: CoreProcess
+    let settingUp: Bool
     let addGap: () -> Void
 
     var body: some View {
@@ -211,12 +215,14 @@ private struct TitleBar: View {
             Spacer().frame(width: 64)
             Text("unrot").font(.display(19)).foregroundStyle(Color.inkPrimary)
             Spacer()
-            StatusPill(watcher: watcher, core: core)
-            Button(action: addGap) {
-                Label("Add a gap", systemImage: "plus")
+            if !settingUp {
+                StatusPill(watcher: watcher, core: core)
+                Button(action: addGap) {
+                    Label("Add a gap", systemImage: "plus")
+                }
+                .buttonStyle(UnrotButton())
+                .keyboardShortcut("n")
             }
-            .buttonStyle(UnrotButton())
-            .keyboardShortcut("n")
         }
         .padding(.horizontal, 14)
         .frame(height: 52)

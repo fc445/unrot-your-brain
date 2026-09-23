@@ -61,6 +61,8 @@ final class Watcher {
     var pendingCount: Int { queue?.pending.count ?? 0 }
     var canAnalyse: Bool { queue?.canAnalyse ?? false }
     var isRunning: Bool { runner != nil }
+    /// False until the first run is finished and `start()` is called.
+    private(set) var started = false
 
     // MARK: -
 
@@ -93,6 +95,8 @@ final class Watcher {
     }
 
     func start() {
+        guard !started else { return }
+        started = true
         seed()
         listen()
         sweeper = Task { [weak self] in
