@@ -223,9 +223,13 @@ private struct QueueCard: View {
 
     private var summary: String {
         let n = watcher.pendingCount
-        if let progress = watcher.progress { return "Analysing \(progress.done + 1) of \(progress.total)" }
+        if let progress = watcher.progress {
+            let spent = watcher.batchSpent.flatMap { $0.calls > 0 ? " · \($0.text) so far" : nil } ?? ""
+            return "Analysing \(progress.done + 1) of \(progress.total)" + spent
+        }
         if n == 0 { return "Nothing waiting" }
-        return "\(n) session\(n == 1 ? "" : "s") waiting" + (watcher.paused ? " · paused" : "")
+        let estimate = watcher.canAnalyse ? (watcher.estimate?.text.map { " · \($0)" } ?? "") : ""
+        return "\(n) session\(n == 1 ? "" : "s") waiting" + estimate + (watcher.paused ? " · paused" : "")
     }
 }
 
@@ -241,15 +245,20 @@ struct ModelPane: View {
 
     @State private var key = ""
     @State private var inEffect: CoreConfig?
+    @State private var spend: Spend?
     @State private var confirming = false
 
     var body: some View {
         VStack(spacing: 18) {
-            HStack(alignment: .top, spacing: 22) {
-                choices.frame(maxWidth: .infinity)
-                leaves.frame(width: 320)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .top, spacing: 22) {
+                        choices.frame(maxWidth: .infinity)
+                        leaves.frame(width: 320)
+                    }
+                    SpendCard(spend: spend)
+                }
             }
-            Spacer(minLength: 0)
             if settings.changed {
                 banner(
                     title: "Changes apply when the core restarts.",
@@ -274,6 +283,7 @@ struct ModelPane: View {
         .background(Color.paper)
         .task {
             inEffect = try? await client.config()
+            spend = try? await client.spend()
             await regenerator.refresh()
         }
         .confirmationDialog("Re-examine \(regenerator.plan?.toRun.count ?? 0) sessions?", isPresented: $confirming) {
@@ -582,5 +592,81 @@ private struct OpenAtLogin: View {
         if let problem {
             Text(problem).font(.system(size: 11)).foregroundStyle(Color.inkSoft)
         }
+    }
+}
+
+// MARK: - Spend
+
+/// What analysis has cost, split by what it was spent on, and what one
+/// examined session costs with each model -- the number for judging a model
+/// choice. Every figure and every "local, no cost" is the core's, from the
+/// same functions `python -m unrot.store metrics` prints.
+private struct SpendCard: View {
+    let spend: Spend?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("What analysis has cost").font(.system(size: 13.5, weight: .semibold))
+            if let spend {
+                HStack(alignment: .top, spacing: 28) {
+                    column("This week", total: spend.week, parts: spend.weekByPurpose)
+                    column("Since install", total: spend.allTime, parts: spend.allTimeByPurpose)
+                }
+                if !spend.perSession.isEmpty {
+                    Divider()
+                    Eyebrow(text: "Per examined session", tint: .inkSoft)
+                    ForEach(spend.perSession) { row in
+                        HStack(spacing: 10) {
+                            Text(row.model).font(.system(size: 12, design: .monospaced))
+                            if row.model == spend.model {
+                                Pip(text: "current", tint: .bucketClosed, wash: .bucketClosedBG)
+                            }
+                            Spacer()
+                            Text(row.text).font(.system(size: 12.5, weight: .semibold)).monospacedDigit()
+                            Text("over \(row.sessions) session\(row.sessions == 1 ? "" : "s")")
+                                .font(.system(size: 11.5)).foregroundStyle(Color.inkFaint)
+                        }
+                    }
+                }
+                Text(footnote(spend))
+                    .font(.system(size: 11.5)).foregroundStyle(Color.inkFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("The core isn't answering.").font(.system(size: 12)).foregroundStyle(Color.inkFaint)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.card, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.rule, lineWidth: 1))
+    }
+
+    private func column(_ title: String, total: SpendTotal, parts: [SpendPart]) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title).font(.system(size: 11.5)).foregroundStyle(Color.inkSoft)
+            Text(total.text).font(.system(size: 20, weight: .semibold)).monospacedDigit()
+            Text("\(total.calls) call\(total.calls == 1 ? "" : "s")"
+                 + (total.failed > 0 ? ", \(total.failed) failed" : ""))
+                .font(.system(size: 11.5)).foregroundStyle(Color.inkFaint)
+            ForEach(parts) { part in
+                HStack {
+                    Text(part.label).font(.system(size: 12))
+                    Spacer(minLength: 12)
+                    Text(part.total.text).font(.system(size: 12)).monospacedDigit()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func footnote(_ spend: Spend) -> String {
+        var text = "From the cost OpenRouter reports on every call, failed calls included — a call that runs out of room is billed and produces nothing."
+        if spend.allTime.unpriced > 0 {
+            text += " \(spend.allTime.unpriced) call\(spend.allTime.unpriced == 1 ? "" : "s") reported no price and \(spend.allTime.unpriced == 1 ? "is" : "are") not in the total."
+        }
+        if spend.local {
+            text += " The model in effect is on this Mac, so analysis has no cost."
+        }
+        return text
     }
 }

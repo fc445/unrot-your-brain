@@ -229,6 +229,84 @@ class PendingOut(BaseModel):
     cwd: str | None = None
 
 
+class SpendTotalOut(BaseModel):
+    """A sum of model calls. `text` is how every surface says it (PR-31)."""
+
+    calls: int = 0
+    failed: int = 0
+    #: USD, summed over the calls that reported a price.
+    cost: float = 0.0
+    priced: int = 0
+    #: Calls to a local endpoint. No bill, and never shown as $0.00.
+    local: int = 0
+    #: Hosted calls that reported no price: unknown, not free.
+    unpriced: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    reasoning_tokens: int = 0
+    local_only: bool = False
+    #: "$0.14", "local, no cost", "$0.14 + 2 unpriced".
+    text: str
+
+
+class SpendPartOut(BaseModel):
+    #: 'detection' | 'resolution' | 'grading' | 'material'
+    purpose: str
+    #: "finding gaps", "filing", "grading", "material".
+    label: str
+    total: SpendTotalOut
+
+
+class SpendDayOut(BaseModel):
+    #: A UTC day, YYYY-MM-DD.
+    day: str
+    total: SpendTotalOut
+
+
+class PerSessionOut(BaseModel):
+    """What examining one session has cost with one model."""
+
+    model: str
+    sessions: int
+    cost: float
+    local: bool
+    average: float | None = None
+    text: str
+
+
+class EstimateOut(BaseModel):
+    """Roughly what analysing `sessions` would cost, from recent sessions on `model`."""
+
+    model: str
+    sessions: int
+    #: How many recent sessions the average came from. Zero: no estimate.
+    based_on: int
+    per_session: float | None = None
+    local: bool
+    cost: float | None = None
+    #: "about $0.12", "local, no cost", or null when there is nothing to go on.
+    text: str | None = None
+
+
+class SpendOut(BaseModel):
+    """What analysis has cost, read off the log. The same numbers as `store metrics`."""
+
+    #: The model and endpoint in effect now, which the estimate is for.
+    model: str
+    local: bool
+    week: SpendTotalOut
+    week_by_purpose: list[SpendPartOut] = Field(default_factory=list)
+    all_time: SpendTotalOut
+    all_time_by_purpose: list[SpendPartOut] = Field(default_factory=list)
+    #: The last fourteen UTC days that had any calls.
+    by_day: list[SpendDayOut] = Field(default_factory=list)
+    #: Cost per examined session, per model, since install.
+    per_session: list[PerSessionOut] = Field(default_factory=list)
+    #: Set when `?since=` was given: spend from then until now. The running
+    #: total for a batch of analysis, failed calls included.
+    window: SpendTotalOut | None = None
+
+
 class QueueOut(BaseModel):
     """Captured sessions waiting to be analysed. Derived, so it survives anything."""
 
@@ -237,6 +315,11 @@ class QueueOut(BaseModel):
     can_analyse: bool
     #: Sessions being analysed right now.
     analysing: list[str] = Field(default_factory=list)
+    #: Roughly what analysing everything pending would cost. Null when nothing
+    #: is pending or no model is configured.
+    estimate: EstimateOut | None = None
+    #: The last seven days' spend, for the queue bar and the tray.
+    spent_this_week: SpendTotalOut | None = None
 
 
 class CapturedOut(BaseModel):

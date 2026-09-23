@@ -23,7 +23,7 @@ from ..model import (
 __all__ = ["DEFAULT_BASE_URL", "DEFAULT_MODEL", "ModelConfig", "build_proposer"]
 
 
-def build_proposer(config: ModelConfig):
+def build_proposer(config: ModelConfig, *, meter=None):
     """Return `propose(prompt_text) -> list[dict]`.
 
     Imports pydantic lazily alongside the client so that importing the detector
@@ -52,7 +52,7 @@ def build_proposer(config: ModelConfig):
             description="Empty is a correct and common answer for a clean session.",
         )
 
-    client = structured_client(config, Proposal)
+    client = structured_client(config, Proposal, meter=meter, purpose="detection")
 
     def propose(prompt_text: str) -> list[dict]:
         try:

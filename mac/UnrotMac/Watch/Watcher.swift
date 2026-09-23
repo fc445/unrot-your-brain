@@ -57,6 +57,16 @@ final class Watcher {
     private(set) var analysing: String?
     private(set) var progress: (done: Int, total: Int)?
     private(set) var lastError: String?
+    /// What the current batch -- or the last one, once it ends -- has spent.
+    /// Read from the core's log after every session, failed ones included,
+    /// rather than added up here: a call that hit the length limit never
+    /// returns a result to count, but it is in the log.
+    private(set) var batchSpent: SpendTotal?
+
+    /// The last seven days, as the core counts them.
+    var spentThisWeek: SpendTotal? { queue?.spentThisWeek }
+    /// Roughly what "Analyse now" would cost, if there is anything to go on.
+    var estimate: SpendEstimate? { queue?.estimate }
 
     var pendingCount: Int { queue?.pending.count ?? 0 }
     var canAnalyse: Bool { queue?.canAnalyse ?? false }
@@ -232,11 +242,14 @@ final class Watcher {
     private func run(_ sessions: [PendingSession]) {
         runner = Task { [weak self] in
             guard let self else { return }
+            let started = Date()
             self.progress = (0, sessions.count)
             self.lastError = nil
+            self.batchSpent = nil
             for (index, session) in sessions.enumerated() {
                 if Task.isCancelled || self.paused { break }
                 self.analysing = session.sessionId
+                var failed = false
                 do {
                     _ = try await self.client.analyse(sessionId: session.sessionId)
                     self.eligible.remove(session.sessionId)
@@ -245,12 +258,17 @@ final class Watcher {
                         // Someone else is on it. Not a failure.
                     } else {
                         self.lastError = error.message
-                        break
+                        failed = true
                     }
                 } catch {
                     self.lastError = "Analysis failed."
-                    break
+                    failed = true
                 }
+                // Failed or not, whatever was called was billed.
+                if let spent = try? await self.client.spend(since: started).window {
+                    self.batchSpent = spent
+                }
+                if failed { break }
                 self.progress = (index + 1, sessions.count)
                 await self.store.load()
             }

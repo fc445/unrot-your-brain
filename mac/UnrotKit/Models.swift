@@ -345,6 +345,92 @@ public struct AnalysisQueue: Codable, Hashable, Sendable {
     /// Whether a model is configured. Capture never needs one; analysis does.
     public let canAnalyse: Bool
     public let analysing: [String]
+    /// Roughly what analysing everything pending would cost. Optional so an
+    /// older core, which does not send it, still decodes.
+    public let estimate: SpendEstimate?
+    /// The last seven days' spend, for the queue bar and the tray.
+    public let spentThisWeek: SpendTotal?
+}
+
+// MARK: - Spend (PR-31)
+//
+// Every number and every sentence here is the core's. `text` in particular is
+// decided there -- "$0.14", "local, no cost", "$0.14 + 2 unpriced" -- so the
+// app, the web page and `store metrics` cannot word the same total differently,
+// and a local model can never be drawn as "$0.00".
+
+/// A sum of model calls.
+public struct SpendTotal: Codable, Hashable, Sendable {
+    public let calls: Int
+    public let failed: Int
+    /// USD, over the calls that reported a price.
+    public let cost: Double
+    public let priced: Int
+    public let local: Int
+    /// Hosted calls that reported no price: unknown, not free.
+    public let unpriced: Int
+    public let promptTokens: Int
+    public let completionTokens: Int
+    public let reasoningTokens: Int
+    public let localOnly: Bool
+    public let text: String
+}
+
+/// What the money went on: finding gaps, filing, grading, material.
+public struct SpendPart: Codable, Hashable, Sendable, Identifiable {
+    public let purpose: String
+    public let label: String
+    public let total: SpendTotal
+
+    public var id: String { purpose }
+}
+
+public struct SpendDay: Codable, Hashable, Sendable, Identifiable {
+    /// A UTC day, YYYY-MM-DD.
+    public let day: String
+    public let total: SpendTotal
+
+    public var id: String { day }
+}
+
+/// What examining one session has cost with one model. The number for
+/// choosing a model.
+public struct SpendPerSession: Codable, Hashable, Sendable, Identifiable {
+    public let model: String
+    public let sessions: Int
+    public let cost: Double
+    public let local: Bool
+    public let average: Double?
+    public let text: String
+
+    public var id: String { model }
+}
+
+/// Roughly what a bulk run would cost, from recent sessions on the same model.
+public struct SpendEstimate: Codable, Hashable, Sendable {
+    public let model: String
+    public let sessions: Int
+    /// How many recent sessions the average came from. Zero: no estimate.
+    public let basedOn: Int
+    public let perSession: Double?
+    public let local: Bool
+    public let cost: Double?
+    /// "about $0.12", "local, no cost", or nil when there is nothing to go on.
+    public let text: String?
+}
+
+public struct Spend: Codable, Hashable, Sendable {
+    /// The model in effect now.
+    public let model: String
+    public let local: Bool
+    public let week: SpendTotal
+    public let weekByPurpose: [SpendPart]
+    public let allTime: SpendTotal
+    public let allTimeByPurpose: [SpendPart]
+    public let byDay: [SpendDay]
+    public let perSession: [SpendPerSession]
+    /// Set when asked `since:` -- the running total of a batch.
+    public let window: SpendTotal?
 }
 
 public struct CaptureResult: Codable, Hashable, Sendable {

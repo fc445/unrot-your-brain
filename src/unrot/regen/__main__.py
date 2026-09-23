@@ -18,6 +18,7 @@ from ..capture import connect as connect_raw
 from ..detector import build_proposer, detector_version
 from ..env import load_env
 from ..model import DEFAULT_MODEL, ModelConfig
+from ..spend import Meter
 from ..resolver import deciders
 from ..store.__main__ import open_store
 from . import plan, regenerate
@@ -42,8 +43,9 @@ def _cmd_plan(args) -> int:
 def _cmd_run(args) -> int:
     conn, raw = open_store(args.home), connect_raw(args.home)
     config = ModelConfig.from_env(model=args.model, api_key=args.api_key)
+    meter = Meter()
     try:
-        propose = build_proposer(config)
+        propose = build_proposer(config, meter=meter)
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -51,7 +53,7 @@ def _cmd_run(args) -> int:
     decide = (
         deciders.strict
         if args.no_resolver_model or not config.api_key
-        else deciders.build_decider(config)
+        else deciders.build_decider(config, meter=meter)
     )
 
     sessions = args.session or None
@@ -78,6 +80,7 @@ def _cmd_run(args) -> int:
             sessions=sessions,
             max_candidates=args.max,
             force=args.force,
+            meter=meter,
         ):
             if result.skipped:
                 totals["skipped"] += 1
@@ -98,12 +101,15 @@ def _cmd_run(args) -> int:
             file=sys.stderr,
         )
         return 130
+    finally:
+        meter.flush(conn)
 
     print(
         f"\n{totals['done']} re-run, {totals['skipped']} already current."
         f" {totals['protected']} judged encounter(s) left untouched,"
         f" {totals['removed']} stale dropped, {totals['recorded']} recorded."
     )
+    print(f"spent {meter.total().text} on {meter.total().calls} model call(s)")
     print(detector_version(config.label))
     return 0
 

@@ -57,6 +57,18 @@ struct TrayPopover: View {
             }
             .padding(.vertical, 6)
 
+            if let spent {
+                HStack {
+                    Text(spent.label)
+                    Spacer()
+                    Text(spent.value).monospacedDigit()
+                }
+                .font(.system(size: 11.5))
+                .foregroundStyle(Color.inkSoft)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+            }
+
             HStack(spacing: 6) {
                 Image(systemName: "lock").font(.system(size: 10))
                 Text(watcher.autoAnalyse
@@ -78,6 +90,19 @@ struct TrayPopover: View {
         if store.state == .failed { return "unrot" }
         let n = store.waitingCount
         return n == 0 ? "Nothing waiting" : "\(n) waiting on you"
+    }
+
+    /// What analysis has cost: this run while one is going, else this week.
+    /// Hidden until something has been spent -- a row reading "$0.00" on a
+    /// fresh install would be a number about nothing.
+    private var spent: (label: String, value: String)? {
+        if watcher.isRunning, let batch = watcher.batchSpent, batch.calls > 0 {
+            return ("This run", batch.text)
+        }
+        if let week = watcher.spentThisWeek, week.calls > 0 {
+            return ("This week", week.text)
+        }
+        return nil
     }
 
     private var upNext: Concept? {

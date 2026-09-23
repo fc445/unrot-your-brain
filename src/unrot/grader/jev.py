@@ -35,6 +35,7 @@ import urllib.error
 import urllib.request
 
 from ..model import NO_KEY_MESSAGE, ModelConfig
+from ..spend import record_http
 from ..store import SOLO_LEVELS
 
 #: The default. Pinned to a minor version rather than an alias: the grade is
@@ -72,7 +73,9 @@ def _endpoint(base_url: str) -> str:
     return base_url.rstrip("/").removesuffix("/v1") + "/v1/systemone"
 
 
-def build_jev_grader(config: ModelConfig | None = None, *, model: str | None = None):
+def build_jev_grader(
+    config: ModelConfig | None = None, *, model: str | None = None, meter=None
+):
     """Return `grade_fn(question, answer) -> dict` backed by a System One model.
 
     The returned dict carries `probabilities` and `confidence` alongside
@@ -112,8 +115,13 @@ def build_jev_grader(config: ModelConfig | None = None, *, model: str | None = N
                 "Content-Type": "application/json",
             },
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            payload = json.load(response)
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                payload = json.load(response)
+        except Exception as exc:
+            record_http(meter, "grading", config, error=exc, model=chosen)
+            raise
+        record_http(meter, "grading", config, payload=payload, model=chosen)
 
         got = (payload.get("answers") or {}).get("solo") or {}
         probabilities = {

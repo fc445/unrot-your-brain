@@ -786,13 +786,13 @@ def test_the_detector_uses_a_cut_off_answer_rather_than_failing_the_session(monk
     entry = '{"term":"undo","paraphrase":"p","assistant_line":14,"signal":"accepted","importance":"central"}'
     cut = '{"candidates":[' + entry + ',{"term":"PR-13","parap'
     failing = _Scripted(_ran_out(content=cut, reasoning=""))
-    monkeypatch.setattr(detector_model, "structured_client", lambda config, schema: failing)
+    monkeypatch.setattr(detector_model, "structured_client", lambda config, schema, **_: failing)
     propose = detector_model.build_proposer(detector_model.ModelConfig(api_key="k"))
     assert [c["term"] for c in propose("PROMPT")] == ["undo"]
 
     # Nothing complete to keep: the failure stands, and the session stays pending.
     empty = _Scripted(_ran_out(content='{"candidates":[{"te', reasoning=""))
-    monkeypatch.setattr(detector_model, "structured_client", lambda config, schema: empty)
+    monkeypatch.setattr(detector_model, "structured_client", lambda config, schema, **_: empty)
     propose = detector_model.build_proposer(detector_model.ModelConfig(api_key="k"))
     with pytest.raises(LengthFinishReasonError):
         propose("PROMPT")

@@ -59,10 +59,16 @@ from .schemas import (
     CapturedOut,
     CaptureResultOut,
     ConfigOut,
+    EstimateOut,
+    PerSessionOut,
     RegenPassOut,
     RegenPlanOut,
     PendingOut,
     QueueOut,
+    SpendDayOut,
+    SpendOut,
+    SpendPartOut,
+    SpendTotalOut,
     SubmittedOut,
     SurfaceOut,
 )
@@ -144,7 +150,7 @@ def _concept_out(concept: read.Concept) -> ConceptOut:
     return ConceptOut(**data)
 
 
-def _build_grader():
+def _build_grader(meter=None):
     """The grading callable, or the offline fallback, and which one it is.
 
     Never raises. A missing key must not stop an explanation being stored --
@@ -162,7 +168,11 @@ def _build_grader():
         # of three and say how sure you are", which is the shape it is built
         # for. It also returns the distribution, which is what makes the
         # listed/causal threshold movable later without re-grading anything.
-        return build_jev_grader(config), DEFAULT_JEV_MODEL.replace("/", "-"), True
+        return (
+            build_jev_grader(config, meter=meter),
+            DEFAULT_JEV_MODEL.replace("/", "-"),
+            True,
+        )
     except Exception:  # pragma: no cover - network/config problems at build time
         return keyword_grader, "keyword", False
 
@@ -178,7 +188,7 @@ class _ModelUnavailable(Exception):
     """The decider was asked and could not answer."""
 
 
-def _build_decider():
+def _build_decider(meter=None):
     """The resolver's decider and its label, or the string-only one.
 
     Mirrors `unrot.resolver`'s own choice, so the CLI and the app resolve a
@@ -191,7 +201,7 @@ def _build_decider():
     if not config.api_key:
         return strict, "none"
     try:
-        return build_decider(config), config.label
+        return build_decider(config, meter=meter), config.label
     except Exception:  # pragma: no cover - config problems at build time
         return strict, "none"
 
@@ -200,7 +210,7 @@ class _NoModel(Exception):
     """Analysis was asked for and there is no model to do it."""
 
 
-def _build_analyser():
+def _build_analyser(meter=None):
     """The detector's proposer and the resolver's decider, with their labels.
 
     Raises `_NoModel` rather than degrading: detection is one model call per
@@ -215,7 +225,12 @@ def _build_analyser():
     if not config.api_key:
         raise _NoModel("no model is configured, so nothing can be analysed")
     try:
-        return build_proposer(config), build_decider(config), config.label, config.label
+        return (
+            build_proposer(config, meter=meter),
+            build_decider(config, meter=meter),
+            config.label,
+            config.label,
+        )
     except RuntimeError as exc:
         raise _NoModel(str(exc)) from exc
 
@@ -241,11 +256,25 @@ LEAVES_THIS_MAC = [
 ]
 
 
-def _is_local(base_url: str) -> bool:
-    from urllib.parse import urlparse
+def _total_out(total, *, local: bool = False) -> SpendTotalOut:
+    """A spend total for the wire.
 
-    host = (urlparse(base_url).hostname or "").lower()
-    return host in ("localhost", "127.0.0.1", "::1") or host.endswith(".local")
+    With no calls at all, a local endpoint still says "local, no cost" rather
+    than "$0.00": the empty week is not a price that rounded down.
+    """
+    data = total.as_dict()
+    if not total.calls and local:
+        data["text"] = "local, no cost"
+    return SpendTotalOut(**data)
+
+
+def _parts_out(by_purpose: dict) -> list[SpendPartOut]:
+    from ..spend import PURPOSES
+
+    return [
+        SpendPartOut(purpose=purpose, label=PURPOSES.get(purpose, purpose), total=_total_out(t))
+        for purpose, t in by_purpose.items()
+    ]
 
 
 #: Sessions being analysed right now, so the same one is never run twice at
@@ -402,7 +431,10 @@ def create_app() -> FastAPI:
         if not text:
             raise HTTPException(400, "an empty explanation is not an answer")
 
-        grade_fn, model_label, live = _build_grader()
+        from ..spend import Meter
+
+        meter = Meter()
+        grade_fn, model_label, live = _build_grader(meter)
 
         with stores() as (conn, _raw):
             try:
@@ -412,7 +444,8 @@ def create_app() -> FastAPI:
 
             graded = True
             try:
-                grade_one(conn, explanation_id, grade_fn=grade_fn, model_label=model_label)
+                with meter.about(concept_id=concept_id):
+                    grade_one(conn, explanation_id, grade_fn=grade_fn, model_label=model_label)
             except Exception:
                 # The answer is safely stored; the level is not. Reported as
                 # ungraded rather than as a failure, because the user has not
@@ -420,6 +453,8 @@ def create_app() -> FastAPI:
                 # never ran.
                 graded = False
                 compile_state(conn)
+            finally:
+                meter.flush(conn)
 
             found = read.concepts(conn, _home())
             row = conn.execute(
@@ -472,18 +507,22 @@ def create_app() -> FastAPI:
         )
         from ..model import ModelConfig
         from ..resolver import resolve_reference, strict
+        from ..spend import Meter
 
         if format not in (TEXTUAL_FORMAT, SOURCES_ONLY):
             raise HTTPException(400, f"unknown format {format!r}")
 
         config = ModelConfig.from_env()
-        search = build_search(config) if config.api_key else None
+        meter = Meter()
+        search = build_search(config, meter=meter) if config.api_key else None
 
-        with stores() as (conn, raw):
+        with stores() as (conn, raw), meter.about(concept_id=concept_id):
             try:
                 found = gather(conn, raw, concept_id, search=search)
             except ValueError as exc:
                 raise HTTPException(404, str(exc)) from exc
+            finally:
+                meter.flush(conn)
 
             try:
                 if format == SOURCES_ONLY:
@@ -499,7 +538,7 @@ def create_app() -> FastAPI:
                         conn,
                         concept_id,
                         found,
-                        write=build_writer(config),
+                        write=build_writer(config, meter=meter),
                         resolve_named=lambda term: resolve_reference(
                             conn, term, decide=decide, recompile=False
                         ),
@@ -511,6 +550,9 @@ def create_app() -> FastAPI:
                 # 422 rather than 500: refusing to write something unsupported
                 # is the gate working, not the server failing.
                 raise HTTPException(422, str(exc)) from exc
+            finally:
+                # A refused or failed write was still a billed call.
+                meter.flush(conn)
 
             deliver(conn, made.material_id)
             concepts = read.concepts(conn, _home())
@@ -616,7 +658,10 @@ def create_app() -> FastAPI:
         if seen_in:
             paraphrase = f"{paraphrase} (seen in {seen_in})"
 
-        real, label = _build_decider()
+        from ..spend import Meter
+
+        meter = Meter()
+        real, label = _build_decider(meter)
 
         def guarded(submission, shortlist):
             # The decider runs before `resolve` appends anything, so a failure
@@ -643,6 +688,8 @@ def create_app() -> FastAPI:
                     "The model could not be reached, so this was filed as new"
                     f" without checking for near-duplicates. ({exc})"
                 )
+            finally:
+                meter.flush(conn)
             found = read.concepts(conn, _home())
 
         concept = next((c for c in found if c.concept_id == resolution.concept_id), None)
@@ -714,15 +761,72 @@ def create_app() -> FastAPI:
         it survive a relaunch with nothing to persist.
         """
         from ..analyse import pending
+        from ..model import ModelConfig
+        from ..spend import Total, calls, estimate, week_ago
 
+        config = ModelConfig.from_env()
+        can = _can_analyse()
         with stores() as (conn, raw):
             waiting = pending(conn, raw)
+            guess = (
+                estimate(conn, model=config.model, sessions=len(waiting), local=config.local)
+                if waiting and can
+                else None
+            )
+            week = Total.of(calls(conn, since=week_ago()))
         with _ANALYSING_LOCK:
             running = sorted(_ANALYSING)
         return QueueOut(
             pending=[PendingOut(**vars(p)) for p in waiting],
-            can_analyse=_can_analyse(),
+            can_analyse=can,
             analysing=running,
+            estimate=EstimateOut(**guess.as_dict()) if guess else None,
+            spent_this_week=_total_out(week, local=config.local),
+        )
+
+    @app.get("/api/spend", response_model=SpendOut)
+    def spend(since: str | None = None) -> SpendOut:
+        """What model calls have cost: this week, since install, and per session.
+
+        Read straight off the log, with the same functions `store metrics`
+        uses, so the app and the CLI cannot disagree. `since` adds a window
+        from that instant until now -- the running total of a batch.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        from ..model import ModelConfig
+        from ..spend import Total, calls, summarise, week_ago
+
+        start = None
+        if since:
+            try:
+                start = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise HTTPException(400, f"could not read {since!r} as a time") from exc
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+
+        config = ModelConfig.from_env()
+        with stores() as (conn, _raw):
+            week = summarise(conn, since=week_ago())
+            ever = summarise(conn)
+            window = Total.of(calls(conn, since=start)) if start else None
+
+        fortnight = (datetime.now(timezone.utc) - timedelta(days=14)).date().isoformat()
+        return SpendOut(
+            model=config.model,
+            local=config.local,
+            week=_total_out(week.total, local=config.local),
+            week_by_purpose=_parts_out(week.by_purpose),
+            all_time=_total_out(ever.total, local=config.local),
+            all_time_by_purpose=_parts_out(ever.by_purpose),
+            by_day=[
+                SpendDayOut(day=day, total=_total_out(total))
+                for day, total in ever.by_day.items()
+                if day >= fortnight
+            ],
+            per_session=[PerSessionOut(**row.as_dict()) for row in ever.per_session],
+            window=_total_out(window, local=config.local) if window is not None else None,
         )
 
     @app.post("/api/capture", response_model=CaptureResultOut)
@@ -783,13 +887,15 @@ def create_app() -> FastAPI:
         has switched automatic analysis on, or clicked "Analyse now".
         """
         from ..analyse import analyse_session
+        from ..spend import Meter
 
         session_id = str((body or {}).get("session_id") or "").strip()
         if not session_id:
             raise HTTPException(400, "name a session to analyse")
 
+        meter = Meter()
         try:
-            propose, decide, detector_label, resolver_label = _build_analyser()
+            propose, decide, detector_label, resolver_label = _build_analyser(meter)
         except _NoModel as exc:
             raise HTTPException(409, str(exc)) from exc
 
@@ -806,15 +912,16 @@ def create_app() -> FastAPI:
                 started = time.monotonic()
                 _log.info("analysing %s with %s", session_id, detector_label)
                 try:
-                    result = analyse_session(
-                        conn,
-                        raw,
-                        session_id,
-                        propose=propose,
-                        decide=decide,
-                        detector_label=detector_label,
-                        resolver_label=resolver_label,
-                    )
+                    with meter.about(session_id=session_id):
+                        result = analyse_session(
+                            conn,
+                            raw,
+                            session_id,
+                            propose=propose,
+                            decide=decide,
+                            detector_label=detector_label,
+                            resolver_label=resolver_label,
+                        )
                 except HTTPException:
                     raise
                 except Exception as exc:
@@ -829,6 +936,9 @@ def create_app() -> FastAPI:
                         f"the model call failed, so {session_id} is still waiting:"
                         f" {describe_failure(exc)}",
                     ) from exc
+                finally:
+                    # Failed or not, the calls were made and billed.
+                    meter.flush(conn)
                 _log.info(
                     "analysed %s in %.0fs: %d windows, %d flagged",
                     session_id, time.monotonic() - started,
@@ -860,7 +970,7 @@ def create_app() -> FastAPI:
         from ..model import ModelConfig
 
         current = ModelConfig.from_env()
-        local = _is_local(current.base_url)
+        local = current.local
         _, grader, graded_by_model = _build_grader()
         return ConfigOut(
             model=current.model,
@@ -894,12 +1004,14 @@ def create_app() -> FastAPI:
         `regenerate` commits before it yields, so stopping leaves the log whole.
         """
         from ..regen import regenerate
+        from ..spend import Meter
 
         session_id = str((body or {}).get("session_id") or "").strip()
         if not session_id:
             raise HTTPException(400, "name a session to regenerate")
+        meter = Meter()
         try:
-            propose, decide, detector_label, _ = _build_analyser()
+            propose, decide, detector_label, _ = _build_analyser(meter)
         except _NoModel as exc:
             raise HTTPException(409, str(exc)) from exc
 
@@ -918,7 +1030,7 @@ def create_app() -> FastAPI:
                         regenerate(
                             conn, raw,
                             propose=propose, decide=decide, model_label=detector_label,
-                            sessions=[session_id],
+                            sessions=[session_id], meter=meter,
                         )
                     )
                 except Exception as exc:
@@ -926,6 +1038,8 @@ def create_app() -> FastAPI:
                     raise HTTPException(
                         502, f"regenerating {session_id} failed: {describe_failure(exc)}"
                     ) from exc
+                finally:
+                    meter.flush(conn)
         finally:
             with _ANALYSING_LOCK:
                 _ANALYSING.discard(session_id)

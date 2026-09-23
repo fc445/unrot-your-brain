@@ -134,6 +134,16 @@ public struct UnrotClient: Sendable {
         return try decode(Analysed.self, await perform("POST", "/api/analyse", body: body, over: patient))
     }
 
+    /// What model calls have cost. With `since`, also the spend from that
+    /// moment on -- which is how a batch shows its running total, failed calls
+    /// included, from the log rather than from a count kept here.
+    public func spend(since: Date? = nil) async throws -> Spend {
+        guard let since else { return try await get(Spend.self, "/api/spend") }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return try await get(Spend.self, "/api/spend?since=\(escape(formatter.string(from: since)))")
+    }
+
     // MARK: - Settings and regeneration
 
     public func config() async throws -> CoreConfig {

@@ -9,7 +9,7 @@ from __future__ import annotations
 from ..model import ModelConfig, structured_client
 
 
-def build_writer(config: ModelConfig | None = None):
+def build_writer(config: ModelConfig | None = None, *, meter=None):
     """Return `write(prompt_text) -> {"body": str, "covers": list[str]}`."""
     from pydantic import BaseModel, Field
 
@@ -28,7 +28,9 @@ def build_writer(config: ModelConfig | None = None):
             ),
         )
 
-    client = structured_client(config or ModelConfig.from_env(), Written)
+    client = structured_client(
+        config or ModelConfig.from_env(), Written, meter=meter, purpose="material"
+    )
 
     def write(prompt_text: str) -> dict:
         return client.invoke(prompt_text).model_dump()

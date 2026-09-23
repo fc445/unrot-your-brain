@@ -13,7 +13,7 @@ from ..store import SOLO_LEVELS
 from . import prompt as prompt_module
 
 
-def build_grader(config: ModelConfig):
+def build_grader(config: ModelConfig, *, meter=None):
     """Return `grade_fn(question, answer) -> dict`."""
     from pydantic import BaseModel, Field
 
@@ -28,7 +28,7 @@ def build_grader(config: ModelConfig):
             )
         )
 
-    client = structured_client(config, Grade)
+    client = structured_client(config, Grade, meter=meter, purpose="grading")
 
     def grade_fn(question: str, answer: str) -> dict:
         return client.invoke(prompt_module.render(question, answer)).model_dump()

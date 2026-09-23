@@ -193,7 +193,9 @@ struct RootView: View {
         case .failed:
             return .init(title: "Restart the core", primary: false) { core.restart() }
         case .notAnalysed where watcher.canAnalyse && !watcher.isRunning:
-            return .init(title: "Examine them now", primary: true) { watcher.analyseNow() }
+            // What it will roughly cost, beside the button that spends it.
+            let title = watcher.estimate?.text.map { "Examine them now · \($0)" } ?? "Examine them now"
+            return .init(title: title, primary: true) { watcher.analyseNow() }
         case .notCaptured where !watcher.paused:
             return .init(title: "Look for sessions now", primary: false) { Task { await watcher.sweep() } }
         default:
@@ -369,8 +371,8 @@ struct FlowLayout: Layout {
 
 // MARK: - Bars and notices
 
-/// Captured sessions waiting to be analysed, and the button that spends money
-/// on them. Absent when there is nothing to say.
+/// Captured sessions waiting to be analysed, the button that spends money on
+/// them, and what has been spent. Absent when there is nothing to say.
 private struct QueueBar: View {
     let watcher: Watcher
 
@@ -382,6 +384,12 @@ private struct QueueBar: View {
                     .foregroundStyle(Color.inkSoft)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
+                if let spent {
+                    Text(spent)
+                        .foregroundStyle(Color.inkFaint)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
                 if watcher.isRunning {
                     Button("Stop") { watcher.stopAnalysing() }.buttonStyle(UnrotButton())
                 } else if watcher.paused {
@@ -401,20 +409,40 @@ private struct QueueBar: View {
         if let progress = watcher.progress { return "Analysing \(progress.done + 1) of \(progress.total)…" }
         if watcher.paused { return "Watching is paused. Finished sessions are not being captured." }
         let n = watcher.pendingCount
-        guard n > 0 else { return nil }
+        guard n > 0 else {
+            // Nothing waiting, but money went out this week: still worth a line.
+            return spent == nil ? nil : "Nothing waiting to be analysed."
+        }
         let sessions = n == 1 ? "1 captured session is" : "\(n) captured sessions are"
         if !watcher.canAnalyse {
             return "\(sessions) waiting, but no model is configured. Add one in Settings › Model."
         }
-        return watcher.autoAnalyse
-            ? "\(sessions) waiting from before automatic analysis was on."
-            : "\(sessions) waiting to be analysed."
+        let waiting = watcher.autoAnalyse
+            ? "\(sessions) waiting from before automatic analysis was on"
+            : "\(sessions) waiting to be analysed"
+        // "about $0.12" or "local, no cost" -- worded by the core, from recent
+        // sessions on the same model. Nothing to go on, nothing said.
+        return waiting + (watcher.estimate?.text.map { " — \($0)." } ?? ".")
+    }
+
+    /// The running total while a batch runs or right after one failed -- the
+    /// case that matters, since a failed call is still billed -- and otherwise
+    /// the week so far.
+    private var spent: String? {
+        if watcher.isRunning || watcher.lastError != nil,
+           let batch = watcher.batchSpent, batch.calls > 0 {
+            return "This run: \(batch.text)"
+        }
+        if let week = watcher.spentThisWeek, week.calls > 0 {
+            return "This week: \(week.text)"
+        }
+        return nil
     }
 
     private var icon: String {
         if watcher.lastError != nil { return "exclamationmark.circle" }
         if watcher.paused { return "pause.circle" }
-        return "tray.full"
+        return watcher.pendingCount == 0 && !watcher.isRunning ? "tray" : "tray.full"
     }
 }
 
