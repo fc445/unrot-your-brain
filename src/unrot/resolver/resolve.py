@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from ..store import append, compile_state, new_ulid
 from . import match
 from . import prompt as prompt_module
-from .submissions import Submission, fingerprint
+from .submissions import Submission, fingerprint, from_candidate
 
 RESOLVER_VERSION = "0.1.0"
 
@@ -393,6 +393,56 @@ def record_analysis(
     if recompile:
         compile_state(conn)
     return event_id
+
+
+def record_detection(
+    conn: sqlite3.Connection,
+    result,
+    *,
+    max_candidates: int | None = None,
+    origin: str = "local",
+) -> str:
+    """Record everything one detector run said about a session (PR-32).
+
+    Takes the detector's `DetectionResult`. Every ranked candidate goes in,
+    emitted or not, because precision needs what was flagged, and stability
+    needs what was found as well as what the budget let through. An emitted
+    candidate carries the encounter id it was filed under. The id is derived
+    from where the candidate sits, so it joins to the user's verdict even
+    after a regeneration has replaced the encounter itself.
+    """
+    emitted = {id(c) for c in result.emitted}
+    candidates = []
+    for candidate in result.ranked:
+        row = {
+            "term": candidate.term,
+            "paraphrase": candidate.paraphrase,
+            "signal": candidate.signal,
+            "importance": candidate.importance,
+            "rank": candidate.rank,
+            "line_start": candidate.line_start,
+            "line_end": candidate.line_end,
+            "emitted": id(candidate) in emitted,
+        }
+        if row["emitted"]:
+            row["encounter_id"] = fingerprint(from_candidate(candidate))
+        candidates.append(row)
+
+    payload = {
+        "session_id": result.session_id,
+        "windows_examined": result.windows_examined,
+        "calls_made": result.calls_made,
+        "candidates": candidates,
+    }
+    if max_candidates is not None:
+        payload["max_candidates"] = max_candidates
+    return append(
+        conn,
+        "detector_ran",
+        payload,
+        origin=origin,
+        provenance={"detector_version": result.detector_version},
+    )
 
 
 def merge(

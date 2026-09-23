@@ -17,6 +17,7 @@ from .generate import (
     deliver,
     for_concept,
     material_version,
+    record_refusal,
     sources_only,
     textual,
 )
@@ -48,6 +49,7 @@ __all__ = [
     "from_transcript",
     "gather",
     "material_version",
+    "record_refusal",
     "repo_for",
     "sources_only",
     "textual",

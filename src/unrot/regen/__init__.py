@@ -46,7 +46,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 
 from ..detector import detect
-from ..resolver import fingerprint, from_candidate, record_analysis, resolve
+from ..resolver import fingerprint, from_candidate, record_analysis, record_detection, resolve
 
 #: Events regeneration is allowed to delete. Both are `system` events, which S5
 #: defines as derived and replaceable, and the list is stated here so that
@@ -259,6 +259,9 @@ def regenerate(
                 )
                 recorded += 1
 
+        # Not in REPLACEABLE: the next pass adds its own run beside this one,
+        # so the log keeps what every detector version said about the session.
+        record_detection(conn, result, max_candidates=max_candidates)
         record_analysis(
             conn,
             session_id,

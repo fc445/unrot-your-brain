@@ -494,6 +494,7 @@ def create_app() -> FastAPI:
             build_writer,
             deliver,
             gather,
+            record_refusal,
             sources_only,
             textual,
         )
@@ -516,15 +517,18 @@ def create_app() -> FastAPI:
             finally:
                 meter.flush(conn)
 
+            if format != SOURCES_ONLY and not config.api_key:
+                # Configuration, not the writer's judgment, so not recorded
+                # as a refusal: it would count against a model that never ran.
+                raise HTTPException(
+                    422,
+                    "no model configured, so nothing can be written."
+                    " The sources-only format still works.",
+                )
             try:
                 if format == SOURCES_ONLY:
                     made = sources_only(conn, concept_id, found)
                 else:
-                    if not config.api_key:
-                        raise NotGrounded(
-                            "no model configured, so nothing can be written."
-                            " The sources-only format still works."
-                        )
                     decide = strict
                     made = textual(
                         conn,
@@ -537,8 +541,10 @@ def create_app() -> FastAPI:
                         model_label=config.label,
                     )
             except WouldRecurse as exc:
+                record_refusal(conn, concept_id, format, exc, model_label=config.label)
                 raise HTTPException(409, str(exc)) from exc
             except NotGrounded as exc:
+                record_refusal(conn, concept_id, format, exc, model_label=config.label)
                 # 422 rather than 500: refusing to write something unsupported
                 # is the gate working, not the server failing.
                 raise HTTPException(422, str(exc)) from exc
