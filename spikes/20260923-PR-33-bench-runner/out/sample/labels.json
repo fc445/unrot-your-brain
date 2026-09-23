@@ -1,0 +1,53 @@
+{
+  "_note": "SYNTHETIC placeholder for PR-27. Real labels must be written by the user, blind to detector output. Format is the proposal under test.",
+  "format": "unrot-labels/0",
+  "sessions": {
+    "sess-messy": {
+      "labelled_by": "synthetic",
+      "blind_to_detector": true,
+      "gaps": [
+        {
+          "term": "outbox",
+          "aliases": [
+            "outbox pattern",
+            "transactional outbox"
+          ],
+          "assistant_line": 4,
+          "kind": "didnt_understand"
+        },
+        {
+          "term": "dual-write",
+          "aliases": [
+            "dual write",
+            "dual-write gap"
+          ],
+          "assistant_line": 4,
+          "kind": "didnt_understand"
+        }
+      ],
+      "not_gaps": [
+        {
+          "term": "idempotent",
+          "aliases": [
+            "idempotency",
+            "idempotency key"
+          ],
+          "why": "knew_it"
+        },
+        {
+          "term": "at-least-once",
+          "aliases": [
+            "at-least-once delivery"
+          ],
+          "why": "asked"
+        }
+      ]
+    },
+    "sess-clean": {
+      "labelled_by": "synthetic",
+      "blind_to_detector": true,
+      "gaps": [],
+      "not_gaps": []
+    }
+  }
+}

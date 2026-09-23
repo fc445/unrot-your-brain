@@ -1,0 +1,26 @@
+$ bench_spike.py run --yes --out out/sample
+2 sessions x 2 models x 2 efforts x 3 repeats = 24 detector calls, at most $0.0241
+wrote spikes/20260923-PR-33-bench-runner/out/sample  (spent $0.0028; ~/.unrot untouched: absent before and after)
+
+$ bench_spike.py score out/sample
+model × effort        precision        recall           flags/sess  stability  fail       p50/max ms   $/correct
+sim/flaky low          100% (3/3) ~      75% (3/4) ~     1.00 (n=3)  0.50 (p=1)    50% (3/6)    7.4/  8.7  $0.000360
+sim/flaky medium       100% (4/4) ~      67% (4/6)       0.67 (n=6)  0.67 (p=6)     0% (0/6)    4.6/  8.9  $0.000039
+sim/steady low          50% (3/6)        50% (3/6)       1.00 (n=6)  1.00 (p=6)     0% (0/6)    3.1/  5.4  $0.000257
+sim/steady medium       50% (3/6)        50% (3/6)       1.00 (n=6)  1.00 (p=6)     0% (0/6)    5.5/  8.9  $0.000257
+~ = fewer than 5 in the denominator; don't read much into it
+
+side by side: sess-messy   labelled gaps: outbox, dual-write
+  sim/steady  low    r1  ✓ outbox  ✗ idempotency key  · missed dual-write
+  sim/steady  low    r2  ✓ outbox  ✗ idempotency key  · missed dual-write
+  sim/steady  low    r3  ✓ outbox  ✗ idempotency key  · missed dual-write
+  sim/steady  medium r1  ✓ outbox  ✗ idempotency key  · missed dual-write
+  sim/steady  medium r2  ✓ outbox  ✗ idempotency key  · missed dual-write
+  sim/steady  medium r3  ✓ outbox  ✗ idempotency key  · missed dual-write
+  sim/flaky   low    r1  FAILED (Truncated)
+  sim/flaky   low    r2  ✓ dual-write gap  ✓ outbox
+  sim/flaky   low    r3  ✓ outbox  · missed dual-write
+  sim/flaky   medium r1  ✓ dual-write gap  ✓ outbox
+  sim/flaky   medium r2  ✓ outbox  · missed dual-write
+  sim/flaky   medium r3  ✓ dual-write gap  · missed outbox
+  ✓ hit  ✗ flagged a labelled not-gap  ? flagged something the labels don't mention  · missed

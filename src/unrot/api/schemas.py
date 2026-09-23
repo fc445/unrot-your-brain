@@ -344,6 +344,28 @@ class AnalysedOut(BaseModel):
     counts: dict[str, int]
 
 
+class ExportFileOut(BaseModel):
+    name: str
+    rows: int
+
+
+class ExportPreviewOut(BaseModel):
+    """What an export would contain, before anything is written (PR-32)."""
+
+    include_text: bool
+    #: Suggested file name for the `.zip`; it unpacks to a folder of the same stem.
+    filename: str
+    files: list[ExportFileOut] = Field(default_factory=list)
+    fixture_events: int = 0
+    first_event_at: str | None = None
+    last_event_at: str | None = None
+    #: The core's own wording, so the app cannot describe the bundle differently
+    #: from what the code puts in it.
+    included: list[str] = Field(default_factory=list)
+    withheld: list[str] = Field(default_factory=list)
+    never: list[str] = Field(default_factory=list)
+
+
 class ConfigOut(BaseModel):
     """What the core will actually use, as it sees it. The key is never echoed."""
 

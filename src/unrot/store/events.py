@@ -130,6 +130,26 @@ SPECS: dict[str, EventSpec] = {
     "model_called": EventSpec(
         "model_called", SYSTEM, "session", ("purpose", "model", "ok")
     ),
+    # -- model output, kept for judging the models (PR-32) --------------------
+    #
+    # Everything one detector run said about a session: the whole ranked list,
+    # not just what the budget let through, with signal, importance and rank.
+    # `session_analysed` says *that* a session was examined; this says *what the
+    # machine thought*. Like `model_called` it is never regenerated away, and
+    # that is the point: a re-run deletes the old `session_analysed` and the
+    # unjudged encounters, so without this the previous model's answer is gone
+    # and "did the new model do better?" has nothing to compare against.
+    "detector_ran": EventSpec(
+        "detector_ran", SYSTEM, "session",
+        ("session_id", "windows_examined", "calls_made", "candidates"),
+        requires_provenance=("detector_version",),
+    ),
+    # The material writer declining to write. Returned to the app as a 409 or
+    # 422 and, before this, recorded nowhere -- so its failure rate was not
+    # countable. `reason` is 'would_recurse' or 'not_grounded'.
+    "material_refused": EventSpec(
+        "material_refused", SYSTEM, "concept", ("concept_id", "format", "reason")
+    ),
 }
 
 #: SOLO, collapsed to three levels. Changeable — the grade is derived, and the

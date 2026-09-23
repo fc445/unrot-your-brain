@@ -488,3 +488,27 @@ public struct RegenPass: Codable, Hashable, Sendable {
     public let skipped: Bool
     public let detectorVersion: String
 }
+
+// MARK: - Export (PR-32)
+
+public struct ExportFile: Codable, Hashable, Sendable {
+    public let name: String
+    public let rows: Int
+}
+
+/// What "Export for analysis" would write, shown before anything is.
+public struct ExportPreview: Codable, Hashable, Sendable {
+    public let includeText: Bool
+    /// Suggested name for the `.zip`; it unpacks to a folder of the same stem.
+    public let filename: String
+    public let files: [ExportFile]
+    public let fixtureEvents: Int
+    public let firstEventAt: String?
+    public let lastEventAt: String?
+    /// The core's own wording, so the app cannot describe the bundle
+    /// differently from what the code puts in it.
+    public let included: [String]
+    /// Empty when text is included.
+    public let withheld: [String]
+    public let never: [String]
+}

@@ -31,7 +31,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
@@ -47,6 +47,8 @@ from .schemas import (
     ConceptOut,
     CorrectedOut,
     EncounterOut,
+    ExportFileOut,
+    ExportPreviewOut,
     ExplanationOut,
     GradedOut,
     HealthOut,
@@ -502,6 +504,7 @@ def create_app() -> FastAPI:
             build_writer,
             deliver,
             gather,
+            record_refusal,
             sources_only,
             textual,
         )
@@ -524,15 +527,18 @@ def create_app() -> FastAPI:
             finally:
                 meter.flush(conn)
 
+            if format != SOURCES_ONLY and not config.api_key:
+                # Configuration, not the writer's judgment, so not recorded
+                # as a refusal: it would count against a model that never ran.
+                raise HTTPException(
+                    422,
+                    "no model configured, so nothing can be written."
+                    " The sources-only format still works.",
+                )
             try:
                 if format == SOURCES_ONLY:
                     made = sources_only(conn, concept_id, found)
                 else:
-                    if not config.api_key:
-                        raise NotGrounded(
-                            "no model configured, so nothing can be written."
-                            " The sources-only format still works."
-                        )
                     decide = strict
                     made = textual(
                         conn,
@@ -545,8 +551,10 @@ def create_app() -> FastAPI:
                         model_label=config.label,
                     )
             except WouldRecurse as exc:
+                record_refusal(conn, concept_id, format, exc, model_label=config.label)
                 raise HTTPException(409, str(exc)) from exc
             except NotGrounded as exc:
+                record_refusal(conn, concept_id, format, exc, model_label=config.label)
                 # 422 rather than 500: refusing to write something unsupported
                 # is the gate working, not the server failing.
                 raise HTTPException(422, str(exc)) from exc
@@ -981,6 +989,50 @@ def create_app() -> FastAPI:
             detector_version=detector_version(current.label),
             reasoning_effort=current.reasoning_effort if current.sends_reasoning else None,
             leaves_this_mac=[] if local else LEAVES_THIS_MAC,
+        )
+
+    @app.get("/api/export/preview", response_model=ExportPreviewOut)
+    def export_preview(include_text: bool = False) -> ExportPreviewOut:
+        """What "Export for analysis" would write, shown before anything is. Reads only."""
+        from .. import export
+        from ..model import ModelConfig
+
+        with stores() as (conn, raw):
+            files, meta = export.contents(
+                conn, raw=raw, include_text=include_text, config=ModelConfig.from_env()
+            )
+        return ExportPreviewOut(
+            include_text=include_text,
+            filename=f"{export.folder_name()}.zip",
+            files=[ExportFileOut(name=name, rows=n) for name, n in meta["files"].items()],
+            fixture_events=meta["fixture_events"],
+            first_event_at=meta["first_event_at"],
+            last_event_at=meta["last_event_at"],
+            included=export.INCLUDED,
+            withheld=[] if include_text else export.WITHHELD,
+            never=export.NEVER,
+        )
+
+    @app.post("/api/export")
+    def export_bundle(include_text: bool = False) -> Response:
+        """The bundle as a `.zip`, returned rather than written.
+
+        The app saves it where the person chose. The core never writes it
+        anywhere itself, so this endpoint cannot be pointed at a path.
+        """
+        from .. import export
+        from ..model import ModelConfig
+
+        with stores() as (conn, raw):
+            data, _meta = export.archive(
+                conn, raw=raw, include_text=include_text, config=ModelConfig.from_env()
+            )
+        return Response(
+            content=data,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{export.folder_name()}.zip"'
+            },
         )
 
     @app.get("/api/regen/plan", response_model=RegenPlanOut)

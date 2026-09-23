@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
@@ -71,6 +72,9 @@ class Call:
     reasoning_tokens: int | None = None
     finish_reason: str | None = None
     error: str | None = None
+    #: Wall-clock time from request to answer (or to failure), in milliseconds.
+    #: None when nothing timed it -- not zero.
+    duration_ms: float | None = None
     #: Which session or concept the call was about, filled from the meter.
     tags: dict = field(default_factory=dict)
 
@@ -212,24 +216,41 @@ def tap(meter: Meter | None, purpose: str, config) -> list:
     local = config.local
 
     class _Tap(BaseCallbackHandler):
-        def on_llm_end(self, response, **kwargs) -> None:
+        # Start times by langchain's run id, so concurrent calls on one client
+        # cannot be timed against each other's start.
+        def __init__(self) -> None:
+            self._started: dict = {}
+
+        def on_chat_model_start(self, serialized, messages, *, run_id=None, **kwargs) -> None:
+            self._started[run_id] = time.monotonic()
+
+        def on_llm_start(self, serialized, prompts, *, run_id=None, **kwargs) -> None:
+            self._started[run_id] = time.monotonic()
+
+        def _elapsed(self, run_id) -> float | None:
+            started = self._started.pop(run_id, None)
+            if started is None:
+                return None
+            return round((time.monotonic() - started) * 1000, 1)
+
+        def on_llm_end(self, response, *, run_id=None, **kwargs) -> None:
             output = response.llm_output or {}
             finish = None
             if response.generations and response.generations[0]:
                 finish = (response.generations[0][0].generation_info or {}).get(
                     "finish_reason"
                 )
-            meter.record(
-                from_usage(
-                    purpose,
-                    config.model,
-                    output.get("token_usage"),
-                    local=local,
-                    finish_reason=finish,
-                )
+            call = from_usage(
+                purpose,
+                config.model,
+                output.get("token_usage"),
+                local=local,
+                finish_reason=finish,
             )
+            call.duration_ms = self._elapsed(run_id)
+            meter.record(call)
 
-        def on_llm_error(self, error, **kwargs) -> None:
+        def on_llm_error(self, error, *, run_id=None, **kwargs) -> None:
             # `LengthFinishReasonError` carries the completion it could not
             # parse, and the completion carries what it cost.
             completion = getattr(error, "completion", None)
@@ -237,17 +258,17 @@ def tap(meter: Meter | None, purpose: str, config) -> list:
             choices = getattr(completion, "choices", None) or []
             if choices:
                 finish = getattr(choices[0], "finish_reason", None)
-            meter.record(
-                from_usage(
-                    purpose,
-                    config.model,
-                    getattr(completion, "usage", None),
-                    local=local,
-                    ok=False,
-                    error=type(error).__name__,
-                    finish_reason=finish,
-                )
+            call = from_usage(
+                purpose,
+                config.model,
+                getattr(completion, "usage", None),
+                local=local,
+                ok=False,
+                error=type(error).__name__,
+                finish_reason=finish,
             )
+            call.duration_ms = self._elapsed(run_id)
+            meter.record(call)
 
     return [_Tap()]
 
@@ -260,23 +281,28 @@ def record_http(
     payload: dict | None = None,
     error: BaseException | None = None,
     model: str | None = None,
+    started: float | None = None,
 ) -> None:
-    """The same, for the calls that are plain HTTP rather than langchain."""
+    """The same, for the calls that are plain HTTP rather than langchain.
+
+    `started` is a `time.monotonic()` reading taken just before the request.
+    """
     if meter is None:
         return
     payload = payload or {}
     choice = (payload.get("choices") or [{}])[0]
-    meter.record(
-        from_usage(
-            purpose,
-            model or config.model,
-            payload.get("usage"),
-            local=config.local,
-            ok=error is None,
-            error=type(error).__name__ if error is not None else None,
-            finish_reason=choice.get("finish_reason") if isinstance(choice, dict) else None,
-        )
+    call = from_usage(
+        purpose,
+        model or config.model,
+        payload.get("usage"),
+        local=config.local,
+        ok=error is None,
+        error=type(error).__name__ if error is not None else None,
+        finish_reason=choice.get("finish_reason") if isinstance(choice, dict) else None,
     )
+    if started is not None:
+        call.duration_ms = round((time.monotonic() - started) * 1000, 1)
+    meter.record(call)
 
 
 # ---------------------------------------------------------------------------

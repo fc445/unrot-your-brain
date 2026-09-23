@@ -161,6 +161,24 @@ public struct UnrotClient: Sendable {
         return try decode(RegenPass.self, await perform("POST", "/api/regen", body: body, over: patient))
     }
 
+    // MARK: - Export
+
+    /// What an export would contain. Reads only; nothing is written.
+    public func exportPreview(includeText: Bool) async throws -> ExportPreview {
+        try await get(ExportPreview.self, "/api/export/preview?include_text=\(includeText)")
+    }
+
+    /// The export bundle as `.zip` bytes. The core hands them back rather than
+    /// writing anywhere, and the app saves them where the person chose.
+    public func exportBundle(includeText: Bool) async throws -> Data {
+        let patient = UnixSocketHTTP(socketPath: http.socketPath, timeout: 300)
+        let response = try await perform("POST", "/api/export?include_text=\(includeText)", over: patient)
+        guard response.isSuccess else {
+            throw APIError.refused(status: response.status, detail: Self.detail(from: response))
+        }
+        return response.body
+    }
+
     public func explain(conceptId: String, text: String) async throws -> Graded {
         let body = try JSONSerialization.data(withJSONObject: ["text": text])
         return try await post(Graded.self, "/api/concepts/\(escape(conceptId))/explanation", body: body)

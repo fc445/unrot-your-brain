@@ -1,0 +1,9 @@
+{"type": "user", "timestamp": "2026-09-20T10:00:00.000Z", "message": {"role": "user", "content": "the webhook keeps double-charging, fix it"}}
+{"type": "assistant", "message": {"content": [{"type": "text", "text": "The handler isn't idempotent. I'll key each delivery on the event id and store the first result, so a retry returns it instead of charging again."}]}}
+{"type": "user", "timestamp": "2026-09-20T10:00:00.000Z", "message": {"role": "user", "content": "ok go"}}
+{"type": "assistant", "message": {"content": [{"type": "text", "text": "Done. I also moved the write behind an outbox so the charge and the record commit together, which closes the dual-write gap."}]}}
+{"type": "user", "timestamp": "2026-09-20T10:00:00.000Z", "message": {"role": "user", "content": "great, ship it"}}
+{"type": "assistant", "message": {"content": [{"type": "text", "text": "One more: the queue consumer uses at-least-once delivery, so the idempotency key is what makes that safe. Nothing else to change."}]}}
+{"type": "user", "timestamp": "2026-09-20T10:00:00.000Z", "message": {"role": "user", "content": "what does at-least-once mean here exactly?"}}
+{"type": "assistant", "message": {"content": [{"type": "text", "text": "It means the broker may redeliver a message it already delivered if it never saw the ack, so handlers must tolerate duplicates."}]}}
+{"type": "user", "timestamp": "2026-09-20T10:00:00.000Z", "message": {"role": "user", "content": "got it, thanks"}}

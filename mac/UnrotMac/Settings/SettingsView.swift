@@ -6,6 +6,7 @@
 
 import ServiceManagement
 import SwiftUI
+import UniformTypeIdentifiers
 import UnrotKit
 
 struct SettingsView: View {
@@ -16,7 +17,7 @@ struct SettingsView: View {
     let client: UnrotClient
     let restartCore: () -> Void
 
-    enum Tab: Hashable { case capture, model, notifications, advanced }
+    enum Tab: Hashable { case capture, model, notifications, advanced, developer }
     @State private var tab: Tab = .capture
 
     var body: some View {
@@ -30,6 +31,8 @@ struct SettingsView: View {
                 .tabItem { Text("Notifications") }.tag(Tab.notifications)
             RegeneratePane(regenerator: regenerator)
                 .tabItem { Text("Advanced") }.tag(Tab.advanced)
+            DeveloperPane(client: client)
+                .tabItem { Text("Developer") }.tag(Tab.developer)
         }
         .frame(width: 760, height: 620)
     }
@@ -516,6 +519,123 @@ struct RegeneratePane: View {
         let n = regenerator.plan?.protected ?? 0
         let count = n == 0 ? "" : " \(n) encounter\(n == 1 ? "" : "s") carry your judgment."
         return "Your judgments are protected and replayed untouched.\(count) Anything you confirmed, dismissed or explained is left exactly as it is; only the machine's own flags are re-examined."
+    }
+}
+
+// MARK: - Developer
+
+/// Export for analysis (PR-32): everything the models decided, and what you
+/// said back, as JSONL in one `.zip`. The core builds the bytes and hands them
+/// back; the app writes them only where the save panel says. What goes in and
+/// what stays out is the core's own wording, shown before anything is written.
+struct DeveloperPane: View {
+    let client: UnrotClient
+    @State private var includeText = false
+    @State private var preview: ExportPreview?
+    @State private var problem: String?
+    @State private var exporting = false
+    @State private var saved: URL?
+
+    var body: some View {
+        Form {
+            Section {
+                Text("Export for analysis writes the log and every decision the models made, with your verdicts, as JSONL files in one .zip — for an agent or a notebook to judge the models with. It is saved on this Mac, where you choose. Nothing is uploaded.")
+                    .font(.system(size: 12))
+                    .fixedSize(horizontal: false, vertical: true)
+                Toggle("Include text", isOn: $includeText)
+                Text(includeText
+                     ? "Your explanations, the questions they answered, the grader's comments, material text and excerpts go in. Read it before you share it."
+                     : "Off: what you wrote, and excerpts from your code and sessions, are left out.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(includeText ? Color.inkSoft : Color.inkFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let preview {
+                Section("What goes in") {
+                    ForEach(preview.included, id: \.self) { line in
+                        Label(line, systemImage: "checkmark").font(.system(size: 12))
+                    }
+                    ForEach(preview.files, id: \.name) { file in
+                        LabeledContent(file.name, value: "\(file.rows) row\(file.rows == 1 ? "" : "s")")
+                            .font(.system(size: 12, design: .monospaced))
+                    }
+                    if preview.fixtureEvents > 0 {
+                        Text("\(preview.fixtureEvents) development fixture event\(preview.fixtureEvents == 1 ? "" : "s") included, each marked fixture: true.")
+                            .font(.system(size: 11)).foregroundStyle(Color.inkFaint)
+                    }
+                }
+                Section("What stays out") {
+                    ForEach(preview.withheld, id: \.self) { line in
+                        Label(line, systemImage: "minus.circle").font(.system(size: 12))
+                    }
+                    ForEach(preview.never, id: \.self) { line in
+                        Label(line, systemImage: "lock").font(.system(size: 12))
+                    }
+                }
+            } else if let problem {
+                Section { Text(problem).foregroundStyle(Color.inkSoft) }
+            }
+
+            Section {
+                HStack(spacing: 10) {
+                    Button(exporting ? "Exporting…" : "Export for analysis…") { choose() }
+                        .disabled(exporting || preview == nil)
+                    if let saved {
+                        Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([saved]) }
+                    }
+                }
+                if let saved {
+                    Text("Saved \(saved.lastPathComponent)")
+                        .font(.system(size: 11)).foregroundStyle(Color.inkFaint)
+                }
+                if let problem, preview != nil {
+                    Text(problem).font(.system(size: 11)).foregroundStyle(Color.inkSoft)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .task(id: includeText) { await refresh() }
+    }
+
+    private func refresh() async {
+        do {
+            preview = try await client.exportPreview(includeText: includeText)
+            problem = nil
+        } catch let error as APIError {
+            preview = nil
+            problem = error.message
+        } catch {
+            preview = nil
+            problem = "Could not read what an export would contain."
+        }
+    }
+
+    private func choose() {
+        guard let preview else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.zip]
+        panel.nameFieldStringValue = preview.filename
+        panel.canCreateDirectories = true
+        panel.message = "Saved only here. Nothing is uploaded."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let withText = includeText
+        exporting = true
+        problem = nil
+        saved = nil
+        Task {
+            do {
+                let data = try await client.exportBundle(includeText: withText)
+                try data.write(to: url, options: .atomic)
+                saved = url
+            } catch let error as APIError {
+                problem = error.message
+            } catch {
+                problem = "Could not save the export: \(error.localizedDescription)"
+            }
+            exporting = false
+        }
     }
 }
 

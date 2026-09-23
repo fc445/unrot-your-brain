@@ -13,6 +13,7 @@ key as everything else rather than another integration to configure.
 from __future__ import annotations
 
 import json
+import time
 import urllib.request
 
 from ..model import NO_KEY_MESSAGE, ModelConfig
@@ -60,13 +61,14 @@ def build_search(
                 "Content-Type": "application/json",
             },
         )
+        started = time.monotonic()
         try:
             with urllib.request.urlopen(request, timeout=90) as response:
                 payload = json.load(response)
         except Exception as exc:
-            record_http(meter, "material", config, error=exc)
+            record_http(meter, "material", config, error=exc, started=started)
             raise
-        record_http(meter, "material", config, payload=payload)
+        record_http(meter, "material", config, payload=payload, started=started)
 
         message = (payload.get("choices") or [{}])[0].get("message") or {}
         out, seen = [], set()

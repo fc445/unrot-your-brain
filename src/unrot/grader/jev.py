@@ -31,6 +31,7 @@ and is a plain HTTP call instead.
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.request
 
@@ -115,13 +116,14 @@ def build_jev_grader(
                 "Content-Type": "application/json",
             },
         )
+        started = time.monotonic()
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 payload = json.load(response)
         except Exception as exc:
-            record_http(meter, "grading", config, error=exc, model=chosen)
+            record_http(meter, "grading", config, error=exc, model=chosen, started=started)
             raise
-        record_http(meter, "grading", config, payload=payload, model=chosen)
+        record_http(meter, "grading", config, payload=payload, model=chosen, started=started)
 
         got = (payload.get("answers") or {}).get("solo") or {}
         probabilities = {

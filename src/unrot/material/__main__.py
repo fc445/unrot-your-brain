@@ -24,6 +24,7 @@ from .generate import (
     deliver,
     for_concept,
     material_version,
+    record_refusal,
     sources_only,
     textual,
 )
@@ -82,9 +83,11 @@ def _make(args, conn, raw, meter) -> int:
                 model_label=config.label,
             )
     except WouldRecurse as exc:
+        record_refusal(conn, args.concept_id, args.format, exc, model_label=config.label)
         print(f"\nrefused: {exc}", file=sys.stderr)
         return 3
     except NotGrounded as exc:
+        record_refusal(conn, args.concept_id, args.format, exc, model_label=config.label)
         print(f"\nnot grounded: {exc}", file=sys.stderr)
         return 2
 

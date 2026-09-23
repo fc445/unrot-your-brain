@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 
 from .detector import detect
 from .detector.detect import DEFAULT_MAX_CANDIDATES
-from .resolver import Resolution, from_candidate, record_analysis, resolve
+from .resolver import Resolution, from_candidate, record_analysis, record_detection, resolve
 
 
 @dataclass
@@ -67,6 +67,7 @@ def analyse_session(
         resolve(conn, from_candidate(candidate), decide=decide, model_label=resolver_label)
         for candidate in result.emitted
     ]
+    record_detection(conn, result, max_candidates=max_candidates)
     record_analysis(
         conn,
         session_id,

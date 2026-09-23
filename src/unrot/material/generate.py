@@ -61,6 +61,36 @@ def material_version(model_label: str) -> str:
     return f"material/{MATERIAL_VERSION}+{model_label}+{prompt_module.prompt_id()}"
 
 
+def record_refusal(
+    conn: sqlite3.Connection,
+    concept_id: str,
+    fmt: str,
+    refusal: NotGrounded | WouldRecurse,
+    *,
+    model_label: str = "none",
+    origin: str = "local",
+) -> str:
+    """Record that the writer declined, and why (PR-32).
+
+    Committed here, because every caller turns the refusal into an error
+    straight after, and an error path is not where a commit gets remembered.
+    """
+    event_id = append(
+        conn,
+        "material_refused",
+        {
+            "concept_id": concept_id,
+            "format": fmt,
+            "reason": "would_recurse" if isinstance(refusal, WouldRecurse) else "not_grounded",
+            "detail": str(refusal),
+        },
+        origin=origin,
+        provenance={"material_version": material_version(model_label)},
+    )
+    conn.commit()
+    return event_id
+
+
 @dataclass
 class Material:
     material_id: str

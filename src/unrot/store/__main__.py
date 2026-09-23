@@ -79,6 +79,42 @@ def _cmd_metrics(args) -> int:
     return 0
 
 
+def _cmd_export(args) -> int:
+    """PR-32's bundle: the log and the models' decisions, flattened. Reads only."""
+    from .. import export
+    from ..env import load_env
+    from ..metrics import window
+    from ..model import ModelConfig
+
+    load_env()
+    conn = open_store(args.home)
+    compile_state(conn)
+    try:
+        since = window(since=args.since).isoformat() if args.since else None
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    try:
+        meta = export.write(
+            conn,
+            args.out,
+            raw=open_raw(args.home),
+            since=since,
+            include_text=args.include_text,
+            config=ModelConfig.from_env(),
+        )
+    except FileExistsError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(f"wrote {args.out}  (nothing was uploaded)")
+    for name, n in meta["files"].items():
+        print(f"  {name:<18} {n} row(s)")
+    if meta["fixture_events"]:
+        print(f"  {meta['fixture_events']} fixture event(s), marked fixture: true")
+    print("  text: " + ("included" if args.include_text else "withheld (--include-text to add it)"))
+    return 0
+
+
 def _cmd_seed(args) -> int:
     conn = open_store(args.home)
     if args.clear:
@@ -126,6 +162,18 @@ def main(argv=None) -> int:
     p_metrics.add_argument("--since", help="from this date instead, e.g. 2026-09-22")
     p_metrics.add_argument("--json", action="store_true", help="machine-readable")
     p_metrics.set_defaults(func=_cmd_metrics)
+
+    p_export = sub.add_parser(
+        "export", help="write the log and every model decision to a folder for analysis (reads only)"
+    )
+    p_export.add_argument("out", help="folder to write; must not exist or be empty")
+    p_export.add_argument("--since", help="only from this date, e.g. 2026-09-22")
+    p_export.add_argument(
+        "--include-text",
+        action="store_true",
+        help="also write explanation text, questions, grader reasoning, material bodies and excerpts",
+    )
+    p_export.set_defaults(func=_cmd_export)
 
     p_seed = sub.add_parser(
         "seed", help="write development fixtures (stand-in for the unbuilt resolver)"
