@@ -20,9 +20,11 @@ Two things it is careful about:
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import sys
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -35,6 +37,7 @@ from fastapi.staticfiles import StaticFiles
 from .. import __version__
 from ..capture import paths
 from ..material import TEXTUAL
+from ..model import describe_failure
 from ..store import compile_state
 from ..store.__main__ import open_raw, open_store
 from . import read
@@ -249,6 +252,11 @@ def _is_local(base_url: str) -> bool:
 #: once -- the watcher and a click on "Analyse now" can both ask. In-process is
 #: enough: there is one core per socket, and `prepare_socket` makes sure of it.
 _ANALYSING: set[str] = set()
+
+#: uvicorn's own logger, so a failure lands in the same stream as the request
+#: lines -- `run/core.log` under the Mac app -- rather than only in a response
+#: body the user may never see.
+_log = logging.getLogger("uvicorn.error")
 _ANALYSING_LOCK = threading.Lock()
 
 
@@ -795,6 +803,8 @@ def create_app() -> FastAPI:
                     "SELECT 1 FROM raw_sessions WHERE session_id = ?", (session_id,)
                 ).fetchone():
                     raise HTTPException(404, f"{session_id} has not been captured")
+                started = time.monotonic()
+                _log.info("analysing %s with %s", session_id, detector_label)
                 try:
                     result = analyse_session(
                         conn,
@@ -810,9 +820,20 @@ def create_app() -> FastAPI:
                 except Exception as exc:
                     # The session is recorded last, so a failure here leaves it
                     # pending and a retry is safe.
+                    _log.warning(
+                        "analysing %s failed after %.0fs: %s",
+                        session_id, time.monotonic() - started, exc,
+                    )
                     raise HTTPException(
-                        502, f"the model call failed, so {session_id} is still waiting: {exc}"
+                        502,
+                        f"the model call failed, so {session_id} is still waiting:"
+                        f" {describe_failure(exc)}",
                     ) from exc
+                _log.info(
+                    "analysed %s in %.0fs: %d windows, %d flagged",
+                    session_id, time.monotonic() - started,
+                    result.windows_examined, len(result.resolutions),
+                )
                 found = read.concepts(conn, _home())
         finally:
             with _ANALYSING_LOCK:
@@ -900,7 +921,10 @@ def create_app() -> FastAPI:
                         )
                     )
                 except Exception as exc:
-                    raise HTTPException(502, f"regenerating {session_id} failed: {exc}") from exc
+                    _log.warning("regenerating %s failed: %s", session_id, exc)
+                    raise HTTPException(
+                        502, f"regenerating {session_id} failed: {describe_failure(exc)}"
+                    ) from exc
         finally:
             with _ANALYSING_LOCK:
                 _ANALYSING.discard(session_id)

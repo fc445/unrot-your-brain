@@ -683,3 +683,30 @@ def test_fixtures_go_through_the_same_write_path_as_everything_else(home):
             "SELECT provenance FROM events WHERE event_type = 'encounter_recorded'"
         )
     )
+
+
+def test_a_reasoning_model_is_asked_to_think_briefly(monkeypatch):
+    """Left to its default, ling-3.0-flash reasoned for 32,768 tokens over one
+    real transcript chunk and never answered. The config caps both."""
+    from unrot.model import ModelConfig
+
+    monkeypatch.delenv("UNROT_REASONING_EFFORT", raising=False)
+    config = ModelConfig.from_env(api_key="k")
+    assert config.reasoning_effort == "low"
+    assert config.sends_reasoning
+    assert config.max_tokens <= 16_000
+    # The default leaves version strings as they were; a change shows in them.
+    assert config.label == config.model.replace("/", "-")
+    monkeypatch.setenv("UNROT_REASONING_EFFORT", "high")
+    assert ModelConfig.from_env(api_key="k").label.endswith("+reasoning-high")
+    # A local server is not sent OpenRouter's parameter.
+    assert not ModelConfig.from_env(api_key="k", base_url="http://localhost:11434/v1").sends_reasoning
+
+
+def test_running_out_of_output_is_said_in_words():
+    from unrot.model import describe_failure
+
+    LengthFinishReasonError = type("LengthFinishReasonError", (Exception,), {})
+    message = describe_failure(LengthFinishReasonError("CompletionUsage(completion_tokens=32768 ...)"))
+    assert "CompletionUsage" not in message
+    assert "UNROT_REASONING_EFFORT" in message
