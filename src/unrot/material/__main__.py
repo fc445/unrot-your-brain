@@ -13,6 +13,7 @@ import sys
 from ..capture import connect as connect_raw
 from ..env import load_env
 from ..model import ModelConfig
+from ..spend import Meter
 from ..resolver import resolve_reference, strict
 from ..store.__main__ import open_store
 from .generate import (
@@ -35,11 +36,21 @@ load_env()
 
 def _cmd_make(args) -> int:
     conn, raw = open_store(args.home), connect_raw(args.home)
+    meter = Meter()
+    try:
+        with meter.about(concept_id=args.concept_id):
+            return _make(args, conn, raw, meter)
+    finally:
+        # Refused or not, every search and write made was billed.
+        meter.flush(conn)
+
+
+def _make(args, conn, raw, meter) -> int:
     config = ModelConfig.from_env(model=args.model, api_key=args.api_key)
 
     search = None
     if not args.offline and config.api_key:
-        search = build_search(config)
+        search = build_search(config, meter=meter)
     elif not config.api_key:
         print(
             "No API key: using only your own code and the sessions themselves."
@@ -64,7 +75,7 @@ def _cmd_make(args) -> int:
                 conn,
                 args.concept_id,
                 found,
-                write=build_writer(config),
+                write=build_writer(config, meter=meter),
                 resolve_named=lambda term: resolve_reference(
                     conn, term, decide=strict, recompile=False
                 ),

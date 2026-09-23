@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 
 from ..detector import detect
@@ -195,6 +196,7 @@ def regenerate(
     sessions: list[str] | None = None,
     max_candidates: int = 2,
     force: bool = False,
+    meter=None,
 ) -> Iterator[SessionPass]:
     """Re-run the detector over history, one session at a time.
 
@@ -202,6 +204,10 @@ def regenerate(
     caller can stop at any yield and the log is left foldable -- which is the
     whole of "interruptible and resumable" and costs nothing beyond committing
     in the right place.
+
+    With a `meter`, each session's model calls are attributed to it and written
+    down with the session's commit. A session that fails leaves its calls in
+    the meter; the caller flushes them.
     """
     from ..detector import detector_version as version_of
     from ..store import compile_state
@@ -225,32 +231,33 @@ def regenerate(
         conn.commit()
         compile_state(conn)
 
-        result = detect(
-            raw,
-            session_id,
-            propose=propose,
-            model_label=model_label,
-            max_candidates=max_candidates,
-        )
-
-        recorded = 0
-        for candidate in result.emitted:
-            submission = from_candidate(candidate)
-            # The conservative rule, at the one line where it is enforced. The
-            # new detector may well flag this same term at these same lines --
-            # and it is still not allowed to touch it, because the user has
-            # already said something about it and a fresh `encounter_recorded`
-            # would supersede the paraphrase they judged.
-            if fingerprint(submission) in protected:
-                continue
-            resolve(
-                conn,
-                submission,
-                decide=decide,
+        with meter.about(session_id=session_id) if meter else nullcontext():
+            result = detect(
+                raw,
+                session_id,
+                propose=propose,
                 model_label=model_label,
-                recompile=False,
+                max_candidates=max_candidates,
             )
-            recorded += 1
+
+            recorded = 0
+            for candidate in result.emitted:
+                submission = from_candidate(candidate)
+                # The conservative rule, at the one line where it is enforced. The
+                # new detector may well flag this same term at these same lines --
+                # and it is still not allowed to touch it, because the user has
+                # already said something about it and a fresh `encounter_recorded`
+                # would supersede the paraphrase they judged.
+                if fingerprint(submission) in protected:
+                    continue
+                resolve(
+                    conn,
+                    submission,
+                    decide=decide,
+                    model_label=model_label,
+                    recompile=False,
+                )
+                recorded += 1
 
         record_analysis(
             conn,
@@ -260,6 +267,8 @@ def regenerate(
             recompile=False,
         )
         conn.commit()
+        if meter is not None:
+            meter.flush(conn)
         compile_state(conn)
 
         yield SessionPass(

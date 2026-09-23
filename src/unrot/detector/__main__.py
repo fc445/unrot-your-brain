@@ -11,6 +11,7 @@ from ..env import load_env
 from . import prompt as prompt_module
 from .detect import DEFAULT_MAX_CANDIDATES, detect, detector_version
 from ..model import DEFAULT_MODEL
+from ..spend import Meter
 from .model import ModelConfig, build_proposer
 from .windows import build_windows, chunk_windows
 
@@ -68,21 +69,23 @@ def main(argv=None) -> int:
     config = ModelConfig.from_env(
         model=args.model, base_url=args.base_url, api_key=args.api_key
     )
+    meter = Meter()
     try:
-        propose = build_proposer(config)
+        propose = build_proposer(config, meter=meter)
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2
 
     payload = []
     for session_id in sessions:
-        result = detect(
-            conn,
-            session_id,
-            propose=propose,
-            model_label=config.label,
-            max_candidates=args.max,
-        )
+        with meter.about(session_id=session_id):
+            result = detect(
+                conn,
+                session_id,
+                propose=propose,
+                model_label=config.label,
+                max_candidates=args.max,
+            )
         if args.json:
             payload.append(
                 {
@@ -109,7 +112,14 @@ def main(argv=None) -> int:
     if args.json:
         print(json.dumps(payload, indent=2))
     else:
-        print(f"\n{detector_version(config.label)}")
+        # Printed, not recorded: this package never imports the store (see
+        # test_the_detector_cannot_write_to_the_graph), so a dry run's spend
+        # is not in `store metrics`. `resolver run` and the app record theirs.
+        print(
+            f"\nspent {meter.total().text} on {meter.total().calls} model call(s)"
+            " -- a dry run, so not recorded in the log"
+        )
+        print(detector_version(config.label))
     return 0
 
 

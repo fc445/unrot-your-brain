@@ -29,7 +29,7 @@ def home(tmp_path, monkeypatch):
     paths.ensure_layout(tmp_path)
     # No model in any test here unless one is injected. The repo `.env` or the
     # developer's shell must never decide whether these make a network call.
-    monkeypatch.setattr(app_module, "_build_decider", lambda: (strict, "none"))
+    monkeypatch.setattr(app_module, "_build_decider", lambda meter=None: (strict, "none"))
     return tmp_path
 
 
@@ -49,7 +49,7 @@ def known(home, concept_id="c-backpressure", name="Backpressure"):
 def decider_says(monkeypatch, **answer):
     """Inject a decider with a fixed opinion, as though a model gave it."""
     monkeypatch.setattr(
-        app_module, "_build_decider", lambda: ((lambda _s, _l: dict(answer)), "test-model")
+        app_module, "_build_decider", lambda meter=None: ((lambda _s, _l: dict(answer)), "test-model")
     )
 
 
@@ -159,7 +159,7 @@ def test_rejecting_an_alias_takes_the_alias_back(client, home, monkeypatch):
     )
 
     # Same words again, with the string matcher only: must not land on Backpressure.
-    monkeypatch.setattr(app_module, "_build_decider", lambda: (strict, "none"))
+    monkeypatch.setattr(app_module, "_build_decider", lambda meter=None: (strict, "none"))
     again = client.post("/api/submissions", json={"text": "flow control"}).json()
 
     assert again["concept_id"] != "c-backpressure"
@@ -206,7 +206,7 @@ def test_a_model_that_cannot_be_reached_costs_the_check_not_the_capture(
     def unreachable(_submission, _shortlist):
         raise ConnectionError("no route to host")
 
-    monkeypatch.setattr(app_module, "_build_decider", lambda: (unreachable, "test-model"))
+    monkeypatch.setattr(app_module, "_build_decider", lambda meter=None: (unreachable, "test-model"))
 
     body = client.post("/api/submissions", json={"text": "flow control"}).json()
 
@@ -281,7 +281,7 @@ def test_input_with_no_word_in_it_is_refused_without_asking_a_model(client, home
     def must_not_be_called(_submission, _shortlist):
         raise AssertionError("the model was asked about something with no word in it")
 
-    monkeypatch.setattr(app_module, "_build_decider", lambda: (must_not_be_called, "test-model"))
+    monkeypatch.setattr(app_module, "_build_decider", lambda meter=None: (must_not_be_called, "test-model"))
     before = event_count(home)
 
     response = client.post("/api/submissions", json={"text": "??? 123"})

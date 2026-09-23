@@ -18,6 +18,7 @@ import sys
 
 from ..env import load_env
 from ..model import DEFAULT_MODEL, ModelConfig
+from ..spend import Meter
 from ..store.__main__ import open_store
 from . import prompt as prompt_module
 from .grade import grade, grader_version, history, regrade, ungraded
@@ -27,7 +28,7 @@ from .model import build_grader, keyword_grader
 load_env()
 
 
-def _grader(args):
+def _grader(args, meter=None):
     """A grader, and an honest label for whichever one it is.
 
     Never silently downgrades: a keyword count and a model's judgment are
@@ -36,7 +37,7 @@ def _grader(args):
     """
     config = ModelConfig.from_env(model=args.model, api_key=args.api_key)
     if not args.no_model and config.api_key and args.grader == "jev":
-        return build_jev_grader(config), DEFAULT_JEV_MODEL.replace("/", "-")
+        return build_jev_grader(config, meter=meter), DEFAULT_JEV_MODEL.replace("/", "-")
     if args.no_model or not config.api_key:
         why = "--no-model" if args.no_model else "no API key set"
         print(
@@ -46,7 +47,7 @@ def _grader(args):
             file=sys.stderr,
         )
         return keyword_grader, "keyword"
-    return build_grader(config), config.label
+    return build_grader(config, meter=meter), config.label
 
 
 def _cmd_pending(args) -> int:
@@ -69,13 +70,18 @@ def _cmd_grade(args) -> int:
     if not rows:
         print("Nothing ungraded.")
         return 0
-    grade_fn, label = _grader(args)
-    for row in rows:
-        result = grade(
-            conn, row["explanation_id"], grade_fn=grade_fn, model_label=label
-        )
-        print(f"  {result.level:<9} {result.concept_id}")
-        print(f"            {result.reasoning}")
+    meter = Meter()
+    grade_fn, label = _grader(args, meter)
+    try:
+        for row in rows:
+            with meter.about(concept_id=row["concept_id"]):
+                result = grade(
+                    conn, row["explanation_id"], grade_fn=grade_fn, model_label=label
+                )
+            print(f"  {result.level:<9} {result.concept_id}")
+            print(f"            {result.reasoning}")
+    finally:
+        meter.flush(conn)
     print(f"\n{len(rows)} graded. {grader_version(label)}")
     return 0
 
@@ -95,12 +101,16 @@ def _cmd_regrade(args) -> int:
         )
         return 1
 
-    grade_fn, label = _grader(args)
+    meter = Meter()
+    grade_fn, label = _grader(args, meter)
     before = {
         row["explanation_id"]: row["level"]
         for row in conn.execute("SELECT * FROM compiled_explanations")
     }
-    results = regrade(conn, grade_fn=grade_fn, model_label=label)
+    try:
+        results = regrade(conn, grade_fn=grade_fn, model_label=label)
+    finally:
+        meter.flush(conn)
 
     moved = 0
     for result in results:

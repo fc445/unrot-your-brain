@@ -45,7 +45,7 @@ def strict(submission: Submission, shortlist: list[Known]) -> dict:
     }
 
 
-def build_decider(config: ModelConfig):
+def build_decider(config: ModelConfig, *, meter=None):
     """Return `decide(submission, shortlist) -> dict`.
 
     Imports pydantic lazily alongside the client, so importing the resolver --
@@ -86,7 +86,7 @@ def build_decider(config: ModelConfig):
             description="Why. This is shown to the user and can be argued with."
         )
 
-    client = structured_client(config, Decision)
+    client = structured_client(config, Decision, meter=meter, purpose="resolution")
 
     def decide(submission: Submission, shortlist: list[Known]) -> dict:
         return client.invoke(
