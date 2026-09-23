@@ -120,6 +120,16 @@ SPECS: dict[str, EventSpec] = {
     "material_delivered": EventSpec(
         "material_delivered", SYSTEM, "material", ("material_id",)
     ),
+    # -- spend (PR-31). What each model call cost, failed calls included. ------
+    #
+    # Machine output, so `system`, but unlike every other derived event it is
+    # never replaced: regeneration deletes by event type and does not name this
+    # one. A re-run makes new calls, and those are new money rather than a
+    # corrected version of the old. Nothing folds it into compiled state;
+    # `unrot.spend` reads it straight off the log.
+    "model_called": EventSpec(
+        "model_called", SYSTEM, "session", ("purpose", "model", "ok")
+    ),
 }
 
 #: SOLO, collapsed to three levels. Changeable — the grade is derived, and the

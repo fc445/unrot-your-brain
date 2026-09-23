@@ -61,6 +61,18 @@ class ModelConfig:
         """What goes into a version string. No key, no endpoint -- just the model."""
         return self.model.replace("/", "-")
 
+    @property
+    def local(self) -> bool:
+        """Whether calls stay on this machine -- and so leave nothing, and cost nothing."""
+        return is_local(self.base_url)
+
+
+def is_local(base_url: str) -> bool:
+    from urllib.parse import urlparse
+
+    host = (urlparse(base_url).hostname or "").lower()
+    return host in ("localhost", "127.0.0.1", "::1") or host.endswith(".local")
+
 
 NO_KEY_MESSAGE = (
     "No API key. Set $OPENROUTER_API_KEY, or pass --api-key, or point"
@@ -68,13 +80,18 @@ NO_KEY_MESSAGE = (
 )
 
 
-def structured_client(config: ModelConfig, schema):
+def structured_client(config: ModelConfig, schema, *, meter=None, purpose: str = "other"):
     """An OpenAI-compatible chat client pinned to one structured-output schema.
 
     Imports langchain lazily so that importing the detector or the resolver --
     or testing their logic -- does not require it.
+
+    With a `meter`, every call the client makes -- including one that fails --
+    is reported to it under `purpose`. See `unrot.spend`.
     """
     from langchain_openai import ChatOpenAI
+
+    from .spend import tap
 
     if not config.api_key:
         raise RuntimeError(NO_KEY_MESSAGE)
@@ -84,4 +101,5 @@ def structured_client(config: ModelConfig, schema):
         base_url=config.base_url,
         api_key=config.api_key,
         temperature=config.temperature,
+        callbacks=tap(meter, purpose, config) or None,
     ).with_structured_output(schema)

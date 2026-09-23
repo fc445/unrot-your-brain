@@ -64,7 +64,7 @@ def with_analyser(monkeypatch, propose):
     from unrot.model import ModelConfig
 
     label = ModelConfig.from_env().label
-    monkeypatch.setattr(app_module, "_build_analyser", lambda: (propose, strict, label, label))
+    monkeypatch.setattr(app_module, "_build_analyser", lambda meter=None: (propose, strict, label, label))
 
 
 # --- capture ----------------------------------------------------------------
@@ -151,7 +151,7 @@ def test_analysis_without_a_model_is_refused_not_faked(client, projects, monkeyp
     source = a_session(projects)
     client.post("/api/capture", json={"paths": [str(source)]})
 
-    def no_model():
+    def no_model(meter=None):
         raise app_module._NoModel("no model is configured")
 
     monkeypatch.setattr(app_module, "_build_analyser", no_model)

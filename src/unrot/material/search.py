@@ -16,6 +16,7 @@ import json
 import urllib.request
 
 from ..model import NO_KEY_MESSAGE, ModelConfig
+from ..spend import record_http
 from .sources import Source
 
 #: Enough to choose from after verification drops some, few enough that fetching
@@ -23,7 +24,9 @@ from .sources import Source
 MAX_RESULTS = 5
 
 
-def build_search(config: ModelConfig | None = None, *, max_results: int = MAX_RESULTS):
+def build_search(
+    config: ModelConfig | None = None, *, max_results: int = MAX_RESULTS, meter=None
+):
     """Return `search(term) -> list[Source]` of unverified candidates."""
     config = config or ModelConfig.from_env()
     if not config.api_key:
@@ -57,8 +60,13 @@ def build_search(config: ModelConfig | None = None, *, max_results: int = MAX_RE
                 "Content-Type": "application/json",
             },
         )
-        with urllib.request.urlopen(request, timeout=90) as response:
-            payload = json.load(response)
+        try:
+            with urllib.request.urlopen(request, timeout=90) as response:
+                payload = json.load(response)
+        except Exception as exc:
+            record_http(meter, "material", config, error=exc)
+            raise
+        record_http(meter, "material", config, payload=payload)
 
         message = (payload.get("choices") or [{}])[0].get("message") or {}
         out, seen = [], set()

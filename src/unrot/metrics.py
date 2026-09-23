@@ -23,6 +23,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
+from . import spend
 from .store.fixtures import FIXTURE_ORIGIN
 
 #: Below this many in a denominator, a percentage is noise dressed as a finding.
@@ -77,6 +78,9 @@ class Report:
     material_made: int = 0
     sessions_analysed: int = 0
     sessions_clean: int = 0
+    #: What model calls cost in the window (PR-31). The same function the app's
+    #: /api/spend reads, so the two cannot disagree.
+    spend: spend.Summary | None = None
 
     not_measured: list[str] = field(default_factory=lambda: list(NOT_MEASURED))
 
@@ -86,6 +90,8 @@ class Report:
         def plain(value):
             if isinstance(value, Ratio):
                 return {"part": value.part, "whole": value.whole, "rate": value.rate}
+            if isinstance(value, spend.Summary):
+                return value.as_dict()
             return value
 
         return json.dumps({k: plain(getattr(self, k)) for k in self.__dataclass_fields__}, indent=2)
@@ -197,6 +203,8 @@ def compute(
         if row["judgment"] or row["concept_id"] in explained_concepts:
             engaged += 1
 
+    report.spend = spend.summarise(conn, since=since, until=until)
+
     report.engaged = Ratio(engaged, report.flags)
     report.ignored = report.flags - engaged
     report.manual_share = Ratio(report.manual, report.flags)
@@ -232,6 +240,8 @@ def render(report: Report) -> str:
         ),
         f"  material made {report.material_made}",
         f"  sessions analysed {report.sessions_analysed}, {report.sessions_clean} of them clean",
+        "",
+        *(spend.render(report.spend) if report.spend else []),
         "",
         "  How to read it",
         "    engaged with            -- confirmed, dismissed, or explained. PR-28's first metric.",

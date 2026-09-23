@@ -16,6 +16,7 @@ from ..env import describe, env_path, load_env
 from ..analyse import analyse_session
 from ..detector import build_proposer
 from ..model import DEFAULT_MODEL, ModelConfig
+from ..spend import Meter
 from ..store import compile_state
 from ..store.__main__ import open_store
 from . import deciders, match
@@ -36,7 +37,7 @@ from .submissions import manual
 load_env()
 
 
-def _deciding(args):
+def _deciding(args, meter=None):
     """Pick a decider, and say plainly which one is running.
 
     Silently downgrading to the string-only decider would be the worst version
@@ -55,7 +56,7 @@ def _deciding(args):
             file=sys.stderr,
         )
         return deciders.strict, "none", config
-    return deciders.build_decider(config), config.label, config
+    return deciders.build_decider(config, meter=meter), config.label, config
 
 
 def _sessions(raw, args) -> list[str]:
@@ -79,9 +80,10 @@ def _cmd_run(args) -> int:
         print("No ingested sessions. Run: python -m unrot.capture ingest", file=sys.stderr)
         return 1
 
-    decide, model_label, config = _deciding(args)
+    meter = Meter()
+    decide, model_label, config = _deciding(args, meter)
     try:
-        propose = build_proposer(config)
+        propose = build_proposer(config, meter=meter)
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -101,16 +103,21 @@ def _cmd_run(args) -> int:
         # The same path the watcher takes, so there is one definition of
         # "analysed" -- including recording the clean case, which is what lets
         # the surface say "we looked".
-        analysis = analyse_session(
-            conn,
-            raw,
-            session_id,
-            propose=propose,
-            decide=decide,
-            detector_label=config.label,
-            resolver_label=model_label,
-            max_candidates=args.max,
-        )
+        try:
+            with meter.about(session_id=session_id):
+                analysis = analyse_session(
+                    conn,
+                    raw,
+                    session_id,
+                    propose=propose,
+                    decide=decide,
+                    detector_label=config.label,
+                    resolver_label=model_label,
+                    max_candidates=args.max,
+                )
+        finally:
+            # Written even when the session failed: those calls were billed.
+            meter.flush(conn)
 
         print(f"\n{session_id}  ({analysis.windows_examined} windows)")
         if analysis.clean:
@@ -129,6 +136,7 @@ def _cmd_run(args) -> int:
         f" {totals['new']} new concept(s), {totals['existing']} repeat(s),"
         f" {totals['alias']} alias(es)"
     )
+    print(f"spent {meter.total().text} on {meter.total().calls} model call(s)")
     print(resolver_version(model_label))
     return 0
 
@@ -136,7 +144,8 @@ def _cmd_run(args) -> int:
 def _cmd_add(args) -> int:
     """Journey 10: a term from a meeting, a podcast, a corridor conversation."""
     conn = open_store(args.home)
-    decide, model_label, _ = _deciding(args)
+    meter = Meter()
+    decide, model_label, _ = _deciding(args, meter)
     try:
         resolution = resolve(
             conn, manual(" ".join(args.text)), decide=decide, model_label=model_label
@@ -144,6 +153,8 @@ def _cmd_add(args) -> int:
     except Unresolvable as exc:
         print(f"not filed: {exc}", file=sys.stderr)
         return 1
+    finally:
+        meter.flush(conn)
     print(f"{resolution.decision}: {resolution.canonical_name}  [{resolution.concept_id}]")
     print(f"  {resolution.reasoning}")
     print(f"  judgment {resolution.judgment_event_id} -- correct it with: correct <id>")
