@@ -1,8 +1,9 @@
 name: Release (prod)
 
-# Publish a full GitHub release (not a pre-release) tagged vX.Y.Z to build a
-# prod DMG, with no dev features in it. Promoting a pre-release to a full
-# release also lands here, and fails unless its tag is a plain vX.Y.Z.
+# Publish a full GitHub release (not a pre-release) tagged vX.Y.Z on master to
+# build a prod DMG, with no dev features in it. master is production: a tag
+# anywhere else is refused. Promoting a -dev pre-release to a full release also
+# lands here, and is refused for its tag.
 
 on:
   release:

@@ -100,18 +100,34 @@ image is laid out one way. See "Dev and prod builds" in
 
 ## Releasing from GitHub
 
-Publishing a GitHub release builds a DMG and attaches it to the release:
+`develop` is the dev branch and `master` is production. Merging does not
+release anything. Publishing a GitHub release does: it builds a DMG and
+attaches it to the release.
 
-| Release | Tag | Workflow | DMG |
+| Branch | Release | Tag | DMG |
 |---|---|---|---|
-| **Set as a pre-release** ticked | `v0.2.0-dev.1`, or any `vX.Y.Z-suffix` | `release-dev.yml` | `Unrot-0.2.0-dev.1.dmg`, dev features in |
-| a full release | `v0.2.0` only | `release-prod.yml` | `Unrot-0.2.0.dmg`, no dev features |
+| `develop` | **Set as a pre-release** ticked | `vX.Y.Z-dev.N`, e.g. `v0.2.0-dev.1` | `Unrot-0.2.0-dev.1.dmg`, dev features in |
+| `master` | a full release | `vX.Y.Z`, e.g. `v0.2.0` | `Unrot-0.2.0.dmg`, no dev features |
 
-Both call `build-dmg.yml`, which runs `dmg.sh` on a `macos-26` runner and adds
-install notes to the release, including the `xattr` command macOS needs before
-it will open an ad-hoc build. Promoting a pre-release to a full release
-triggers the prod workflow, which refuses a tag with a suffix. Cut a plain
-`vX.Y.Z` tag instead.
+```bash
+gh release create v0.2.0-dev.1 --target develop --prerelease --generate-notes
+```
+
+```bash
+gh release create v0.2.0 --target master --generate-notes
+```
+
+`release-dev.yml` and `release-prod.yml` both call `build-dmg.yml`, which runs
+`dmg.sh` on a `macos-26` runner. It adds install notes to the release,
+including the `xattr` command macOS needs before it will open an ad-hoc build.
+The workflow refuses a release that breaks the rules above:
+
+- a dev release not tagged `-dev`;
+- a prod release with a suffixed tag;
+- a prod release whose commit is not on `master`. Merge `develop` into
+  `master` first.
+
+Promoting a `-dev` pre-release to a full release fails for the same reason.
 
 **The version comes from the tag.** Nothing needs editing beforehand. The
 workflow runs `set-version.sh`, which stamps the tag's version into the Xcode

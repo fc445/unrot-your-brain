@@ -36,17 +36,27 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag }}
-          fetch-depth: 0  # the build number is the commit count
+          fetch-depth: 0  # all branches, for the master check; the commit count is the build number
 
+      # develop is the dev channel and master is production. A prod build must
+      # be a plain vX.Y.Z tagged on master; a dev build is always tagged -dev.
       - name: Check the tag suits the channel
         run: |
           case "$CHANNEL" in
             prod)
-              printf '%s' "$TAG" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+$' || {
-                echo "::error::A prod release needs a plain vX.Y.Z tag, not '$TAG'. Mark it as a pre-release for a dev build."
+              printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || {
+                echo "::error::A prod release needs a plain vX.Y.Z tag, not '$TAG'."
+                exit 1
+              }
+              git merge-base --is-ancestor HEAD origin/master || {
+                echo "::error::$TAG is not on master. Prod releases are tagged on master; merge develop into master first, or make this a dev pre-release tagged -dev."
                 exit 1
               } ;;
-            dev) ;;  # set-version.sh checks the shape
+            dev)
+              printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-dev(\.[0-9]+)?$' || {
+                echo "::error::A dev release is tagged vX.Y.Z-dev.N, e.g. v0.2.0-dev.1, not '$TAG'."
+                exit 1
+              } ;;
             *) echo "::error::Unknown channel '$CHANNEL'"; exit 1 ;;
           esac
 
