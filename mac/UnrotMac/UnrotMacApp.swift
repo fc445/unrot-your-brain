@@ -96,7 +96,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEV_FEATURES
         core.environmentProvider = { [model, langSmith] in
             MainActor.assumeIsolated {
-                model.environment().merging(langSmith.environment()) { current, _ in current }
+                // UNROT_DEV_FEATURES gates `POST /api/dev/wipe` in the core
+                // (see `_dev_mode` in api/app.py) -- set here, unconditionally
+                // in a dev build, rather than behind a setting of its own,
+                // because a dev build sharing the real `~/.unrot` with prod is
+                // exactly the situation that endpoint refuses to run in
+                // otherwise. `current` (the model/LangSmith values) always wins
+                // a key collision, and neither of those ever sets this one.
+                ["UNROT_DEV_FEATURES": "1"]
+                    .merging(model.environment()) { current, _ in current }
+                    .merging(langSmith.environment()) { current, _ in current }
             }
         }
         #else

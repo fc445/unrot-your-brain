@@ -402,3 +402,31 @@ class RegenPassOut(BaseModel):
     recorded: int
     skipped: bool
     detector_version: str
+
+
+class DevWipePlanOut(BaseModel):
+    """What a wipe would do, shown before the confirmation dialog. Calls no model."""
+
+    #: Every captured session -- after a wipe, `already_done` is empty, so this
+    #: many sessions is exactly what `regenerate()` will re-run.
+    sessions_to_rerun: int
+    #: Encounters that carry a judgment. Kept unless `discard_user_input` is set.
+    protected_encounters: int
+    #: Encounters submitted by hand. Kept unless `discard_user_input` is set.
+    manual_encounters: int
+    #: Explanations on file. Kept, and their grades with them, unless
+    #: `discard_user_input` is set.
+    explanations: int
+    can_run: bool
+
+
+class DevWipeOut(BaseModel):
+    """What one wipe actually did, and where the safety copy went."""
+
+    backup_path: str
+    encounters_removed: int
+    other_events_removed: int
+    user_input_discarded: bool
+    #: Sessions the caller should now hand to `POST /api/regen`, one at a time
+    #: (or drive through the existing `Regenerator`) to finish the rerun.
+    sessions_to_rerun: int

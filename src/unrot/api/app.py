@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import sys
 import threading
@@ -61,6 +62,8 @@ from .schemas import (
     CapturedOut,
     CaptureResultOut,
     ConfigOut,
+    DevWipeOut,
+    DevWipePlanOut,
     EstimateOut,
     PerSessionOut,
     RegenPassOut,
@@ -241,6 +244,23 @@ def _can_analyse() -> bool:
     from ..model import ModelConfig
 
     return bool(ModelConfig.from_env().api_key)
+
+
+def _dev_mode() -> bool:
+    """Whether this core was started with dev features on.
+
+    Set only by the Mac app, only in a dev build (`UNROT_CHANNEL=dev`, the
+    `DEV_FEATURES` Swift condition) -- see `UnrotMacApp.swift`'s
+    `environmentProvider`. Not the same question as "is this build of the app
+    a dev build": the app and the core are separate processes, `wipe` is a core
+    operation reachable by anyone who can open this socket, and a CLI or bare
+    `python -m unrot.api` run gets this off by default, which is the only safe
+    default for an operation that can discard real data. Resolved from the
+    environment on every call rather than cached at startup, matching `_home`
+    and `ModelConfig.from_env` -- nothing here assumes the process was launched
+    by the one supervisor that knows to set it.
+    """
+    return os.environ.get("UNROT_DEV_FEATURES") == "1"
 
 
 #: What leaves this machine when the endpoint is not local, one line per kind of
@@ -1102,6 +1122,81 @@ def create_app() -> FastAPI:
             recorded=result.recorded,
             skipped=result.skipped,
             detector_version=result.detector_version,
+        )
+
+    @app.get("/api/dev/wipe/plan", response_model=DevWipePlanOut)
+    def dev_wipe_plan() -> DevWipePlanOut:
+        """What a wipe would discard and rebuild, shown before the confirmation
+        dialog. Calls no model, changes nothing. Dev builds only -- see `_dev_mode`.
+        """
+        from ..model import ModelConfig
+        from ..regen import plan
+
+        if not _dev_mode():
+            raise HTTPException(403, "dev features are off on this core")
+        with stores() as (conn, raw):
+            if raw is None:
+                raise HTTPException(409, "nothing has been captured, so there is nothing to wipe")
+            preview = plan(conn, raw, model_label=ModelConfig.from_env().label)
+            manual = conn.execute(
+                "SELECT count(*) FROM compiled_encounters WHERE source = 'manual'"
+            ).fetchone()[0]
+            explanations = conn.execute(
+                "SELECT count(*) FROM compiled_explanations"
+            ).fetchone()[0]
+        return DevWipePlanOut(
+            # Every captured session, not just `to_run`: a wipe clears
+            # `session_analysed` for all of them, so `already_done` is empty
+            # immediately afterwards and every one of them is due a re-run.
+            sessions_to_rerun=preview.captured,
+            protected_encounters=preview.protected,
+            manual_encounters=manual,
+            explanations=explanations,
+            can_run=_can_analyse(),
+        )
+
+    @app.post("/api/dev/wipe", response_model=DevWipeOut)
+    def dev_wipe(body: dict) -> DevWipeOut:
+        """Back up the store, discard model-generated data, and report what's left
+        to re-run. The rerun itself is not started here -- the caller drives it
+        through the existing `POST /api/regen`, one session at a time, the same
+        way any other regeneration does (see `Regenerator.swift`). Splitting the
+        two means a wipe that took the backup and cannot afford the rerun's model
+        calls is still a completed, honest operation rather than a half a wipe
+        stuck mid-request.
+
+        Dev builds only -- see `_dev_mode`. Refuses with 403 on any other core,
+        including one started for the CLI or from a shipped, prod-channel app,
+        because this can discard the only copy of real judgments and
+        explanations that exists.
+        """
+        from ..model import ModelConfig
+        from ..regen import plan, wipe
+        from ..store.backup import backup_store
+
+        if not _dev_mode():
+            raise HTTPException(403, "dev features are off on this core")
+        discard_user_input = bool((body or {}).get("discard_user_input"))
+        with stores() as (conn, raw):
+            if raw is None:
+                raise HTTPException(409, "nothing has been captured, so there is nothing to wipe")
+            backup_path = backup_store(conn, paths.home(_home()))
+            result = wipe(conn, discard_user_input=discard_user_input)
+            sessions_to_rerun = plan(
+                conn, raw, model_label=ModelConfig.from_env().label
+            ).captured
+        _log.warning(
+            "dev wipe: removed %d encounter(s) and %d other event(s)"
+            " (discard_user_input=%s), backed up to %s",
+            result.encounters_removed, result.other_events_removed,
+            discard_user_input, backup_path,
+        )
+        return DevWipeOut(
+            backup_path=str(backup_path),
+            encounters_removed=result.encounters_removed,
+            other_events_removed=result.other_events_removed,
+            user_input_discarded=result.user_input_discarded,
+            sessions_to_rerun=sessions_to_rerun,
         )
 
     # The built frontend, when there is one. Mounted last so it cannot shadow
