@@ -94,8 +94,11 @@ UNROT_CHANNEL=dev packaging/dmg.sh
 ```
 
 Both scripts take `UNROT_CHANNEL=dev|prod` (default `prod`); a `dev` build
-compiles in the code behind `#if DEV_FEATURES`. Both call `make-dmg.sh`, so the
-image is laid out one way. See "Dev and prod builds" in
+compiles in the code behind `#if DEV_FEATURES`. A `dev` build also takes
+`UNROT_DEV_LANGSMITH_API_KEY` as the default key for the Developer tab's
+LangSmith toggle. A `prod` build is always given an empty one, and both
+scripts fail a `prod` build that still ends up with a key. Both call
+`make-dmg.sh`, so the image is laid out one way. See "Dev and prod builds" in
 [`mac/README.md`](../mac/README.md).
 
 ## Releasing from GitHub
@@ -128,6 +131,11 @@ The workflow refuses a release that breaks the rules above:
   `master` first.
 
 Promoting a `-dev` pre-release to a full release fails for the same reason.
+
+A dev release bakes in the repository secret `LANGSMITH_API_KEY`, if it is
+set, as the Developer tab's default LangSmith key. The repo is public and so
+are the DMGs attached to its releases, so use a key you would be fine leaking.
+The prod workflow never passes the secret.
 
 **The version comes from the tag.** Nothing needs editing beforehand. The
 workflow runs `set-version.sh`, which stamps the tag's version into the Xcode

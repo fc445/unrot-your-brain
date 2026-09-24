@@ -18,6 +18,12 @@ on:
         description: The release's tag, e.g. v0.2.0 or v0.2.0-dev.1
         required: true
         type: string
+    secrets:
+      LANGSMITH_API_KEY:
+        description: >-
+          Baked into a dev build as the Developer tab's default LangSmith key.
+          Only release-dev.yml passes it, and it is dropped for prod regardless.
+        required: false
 
 jobs:
   dmg:
@@ -75,6 +81,8 @@ jobs:
         run: packaging/set-version.sh "$TAG" "$(git rev-list --count HEAD)"
 
       - name: Build the DMG
+        env:
+          UNROT_DEV_LANGSMITH_API_KEY: ${{ inputs.channel == 'dev' && secrets.LANGSMITH_API_KEY || '' }}
         run: UNROT_CHANNEL="$CHANNEL" packaging/dmg.sh
 
       - name: Name it after the tag

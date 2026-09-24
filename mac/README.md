@@ -77,6 +77,18 @@ The Developer tab in Settings is the first: *Export for analysis* (PR-32),
 headed by what the build is (channel, version, store) and shortcuts to the
 store folder and `core.log`. A prod build has no Developer tab.
 
+It also has **Export generations to LangSmith**, off by default. When it is on,
+the core is started with `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY` and
+`LANGSMITH_PROJECT` (default `unrot-dev`), and LangChain traces every model call
+it makes. When it is off, the core gets `LANGSMITH_TRACING=false`, so a
+`LANGSMITH_TRACING=true` in the repo `.env` does not turn tracing on behind the
+toggle. Changes take effect when the core restarts. The key comes from the
+build: `UNROT_DEV_LANGSMITH_API_KEY` on the `dmg.sh`/`release.sh` line, or the
+repo's `LANGSMITH_API_KEY` secret for a GitHub pre-release. It is stored as
+`UnrotLangSmithKey` in Info.plist, **so anyone with the DMG can read it**. A key
+saved in the tab replaces the build's key. You need one for a Debug build out
+of Xcode, because Xcode does not pass one to it.
+
 To put a build on a Mac as a DMG:
 
 ```bash

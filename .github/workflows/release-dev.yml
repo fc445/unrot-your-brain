@@ -4,6 +4,10 @@ name: Release (dev)
 # the code behind `#if DEV_FEATURES` compiled in. develop is the dev branch,
 # and a dev release is always tagged vX.Y.Z-dev.N, e.g. v0.2.0-dev.1. The DMG
 # is attached to the release when it is done.
+#
+# The repo's LANGSMITH_API_KEY secret, if there is one, is baked in as the
+# default key for the Developer tab's LangSmith toggle. Anyone who downloads the
+# DMG can read it out of Info.plist, so use a key you would be fine leaking.
 
 on:
   release:
@@ -17,3 +21,5 @@ jobs:
     with:
       channel: dev
       tag: ${{ github.event.release.tag_name }}
+    secrets:
+      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
