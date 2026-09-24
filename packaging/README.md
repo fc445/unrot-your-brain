@@ -83,5 +83,49 @@ DEVELOPER_ID="Developer ID Application: Your Name (TEAMID)" NOTARY_PROFILE=unrot
 ```
 
 `--check` verifies the identity and the notarisation profile and stops. Without
-it the script freezes the core, archives, verifies the signatures, notarises,
-staples and zips. **It has not been run end to end** — see its header.
+it the script freezes the core, archives, verifies the signatures, notarises and
+staples the app, then wraps it in a DMG that is itself signed, notarised and
+stapled. **It has not been run end to end** — see its header.
+
+Without a Developer ID, `dmg.sh` builds the same DMG signed ad hoc:
+
+```bash
+UNROT_CHANNEL=dev packaging/dmg.sh
+```
+
+Both scripts take `UNROT_CHANNEL=dev|prod` (default `prod`); a `dev` build
+compiles in the code behind `#if DEV_FEATURES`. Both call `make-dmg.sh`, so the
+image is laid out one way. See "Dev and prod builds" in
+[`mac/README.md`](../mac/README.md).
+
+## Releasing from GitHub
+
+Publishing a GitHub release builds a DMG and attaches it to the release:
+
+| Release | Tag | Workflow | DMG |
+|---|---|---|---|
+| **Set as a pre-release** ticked | `v0.2.0-dev.1`, or any `vX.Y.Z-suffix` | `release-dev.yml` | `Unrot-0.2.0-dev.1.dmg`, dev features in |
+| a full release | `v0.2.0` only | `release-prod.yml` | `Unrot-0.2.0.dmg`, no dev features |
+
+Both call `build-dmg.yml`, which runs `dmg.sh` on a `macos-26` runner and adds
+install notes to the release, including the `xattr` command macOS needs before
+it will open an ad-hoc build. Promoting a pre-release to a full release
+triggers the prod workflow, which refuses a tag with a suffix. Cut a plain
+`vX.Y.Z` tag instead.
+
+**The version comes from the tag.** Nothing needs editing beforehand. The
+workflow runs `set-version.sh`, which stamps the tag's version into the Xcode
+project, `pyproject.toml` and `unrot.__version__`. The build number is the
+commit count, so it only ever goes up, whichever channel. The stamp is not
+committed back: the tag records what was built, and the checked-in `0.1.0` is
+only what local builds call themselves.
+
+```bash
+packaging/set-version.sh v0.2.0-dev.1 54
+```
+
+That is the same stamp, run locally. It touches tracked files, so run it on a
+throwaway tree or put the old version back afterwards.
+
+GitHub runs a release workflow from the tagged commit, so a tag cut before
+these files existed will not build.

@@ -1,0 +1,18 @@
+name: Release (dev)
+
+# Publish a GitHub release marked "Set as a pre-release" to build a dev DMG:
+# the code behind `#if DEV_FEATURES` compiled in. Tag it vX.Y.Z-anything,
+# e.g. v0.2.0-dev.1. The DMG is attached to the release when it is done.
+
+on:
+  release:
+    types: [prereleased]
+
+jobs:
+  dmg:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build-dmg.yml
+    with:
+      channel: dev
+      tag: ${{ github.event.release.tag_name }}

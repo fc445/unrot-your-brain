@@ -295,7 +295,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="unrot",
         summary="The gap list, and the judgments you make about it.",
-        version="0.1.0",
+        version=__version__,
     )
     app.add_middleware(
         CORSMiddleware,
