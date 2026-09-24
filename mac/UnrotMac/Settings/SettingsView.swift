@@ -31,8 +31,10 @@ struct SettingsView: View {
                 .tabItem { Text("Notifications") }.tag(Tab.notifications)
             RegeneratePane(regenerator: regenerator)
                 .tabItem { Text("Advanced") }.tag(Tab.advanced)
+            #if DEV_FEATURES
             DeveloperPane(client: client)
                 .tabItem { Text("Developer") }.tag(Tab.developer)
+            #endif
         }
         .frame(width: 760, height: 620)
     }
@@ -524,6 +526,9 @@ struct RegeneratePane: View {
 
 // MARK: - Developer
 
+#if DEV_FEATURES
+/// Dev-channel builds only, like the rest of the tab.
+///
 /// Export for analysis (PR-32): everything the models decided, and what you
 /// said back, as JSONL in one `.zip`. The core builds the bytes and hands them
 /// back; the app writes them only where the save panel says. What goes in and
@@ -538,6 +543,7 @@ struct DeveloperPane: View {
 
     var body: some View {
         Form {
+            BuildInfoSection()
             Section {
                 Text("Export for analysis writes the log and every decision the models made, with your verdicts, as JSONL files in one .zip — for an agent or a notebook to judge the models with. It is saved on this Mac, where you choose. Nothing is uploaded.")
                     .font(.system(size: 12))
@@ -638,6 +644,7 @@ struct DeveloperPane: View {
         }
     }
 }
+#endif
 
 struct NotificationsPane: View {
     @Bindable var notifier: Notifier

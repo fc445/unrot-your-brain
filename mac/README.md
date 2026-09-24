@@ -51,6 +51,51 @@ The frozen core is copied in by a build phase from `build/dist/unrot-core`.
 Debug warns when it is absent; Release fails, and tells you the command.
 See [`packaging/README.md`](../packaging/README.md).
 
+## Dev and prod builds
+
+Which features a build has is a separate question from how it is compiled.
+The `UNROT_CHANNEL` build setting is `dev` or `prod`; a `dev` build gets the
+`DEV_FEATURES` Swift compilation condition, in the app and in UnrotKit.
+
+| Build | Channel |
+|---|---|
+| Debug, out of Xcode | `dev` |
+| Release | `prod` |
+| Either, with `UNROT_CHANNEL=…` on the `xcodebuild` line | whichever you say |
+
+Gate a dev-only feature at compile time, so a prod build does not contain it
+at all rather than merely hiding it:
+
+```swift
+#if DEV_FEATURES
+DeveloperPane(client: client)
+    .tabItem { Text("Developer") }.tag(Tab.developer)
+#endif
+```
+
+The Developer tab in Settings is the first: *Export for analysis* (PR-32),
+headed by what the build is (channel, version, store) and shortcuts to the
+store folder and `core.log`. A prod build has no Developer tab.
+
+To put a build on a Mac as a DMG:
+
+```bash
+UNROT_CHANNEL=dev packaging/dmg.sh
+```
+
+That freezes the core, archives an optimised Release build for the channel,
+checks the built app's `UnrotChannel` in its Info.plist matches, and writes
+`build/dmg/Unrot-<version>-dev.dmg` (or `Unrot-<version>.dmg` for prod). A dev
+DMG runs the bundled core like a shipped build, so what a tester sees is the
+real app plus the dev features. It is signed ad hoc, without the hardened
+runtime, so a downloaded copy needs System Settings › Privacy & Security ›
+*Open Anyway* once. `packaging/release.sh` takes the same `UNROT_CHANNEL` for a
+Developer ID-signed, notarised DMG.
+
+Both channels share `com.unrot.mac`, `~/.unrot` and the Keychain item, so a
+dev build tests against your real store. Set `UNROT_HOME` to keep it apart. The
+socket path has to fit in 104 bytes, so keep that directory short.
+
 ### If the Debug core starts and then says nothing
 
 **Give the app access to the folder your checkout is in, or use the frozen
@@ -132,6 +177,7 @@ every judgment alone).
 
 - **Signing, notarisation, Sparkle.** `packaging/release.sh` is written and
   checks its prerequisites, but has never run: this machine has no Developer ID.
+  Ad-hoc DMGs from `packaging/dmg.sh` do work.
   Sparkle needs a decision about where updates are hosted.
 - **Deleting retained copies.** Capture appends to them incrementally, so doing
   it safely needs a core operation that forgets them as well.

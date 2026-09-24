@@ -83,5 +83,65 @@ DEVELOPER_ID="Developer ID Application: Your Name (TEAMID)" NOTARY_PROFILE=unrot
 ```
 
 `--check` verifies the identity and the notarisation profile and stops. Without
-it the script freezes the core, archives, verifies the signatures, notarises,
-staples and zips. **It has not been run end to end** — see its header.
+it the script freezes the core, archives, verifies the signatures, notarises and
+staples the app, then wraps it in a DMG that is itself signed, notarised and
+stapled. **It has not been run end to end** — see its header.
+
+Without a Developer ID, `dmg.sh` builds the same DMG signed ad hoc:
+
+```bash
+UNROT_CHANNEL=dev packaging/dmg.sh
+```
+
+Both scripts take `UNROT_CHANNEL=dev|prod` (default `prod`); a `dev` build
+compiles in the code behind `#if DEV_FEATURES`. Both call `make-dmg.sh`, so the
+image is laid out one way. See "Dev and prod builds" in
+[`mac/README.md`](../mac/README.md).
+
+## Releasing from GitHub
+
+`develop` is the dev branch and `master` is production. Merging does not
+release anything. Publishing a GitHub release does: it builds a DMG and
+attaches it to the release.
+
+| Branch | Release | Tag | DMG |
+|---|---|---|---|
+| `develop` | **Set as a pre-release** ticked | `vX.Y.Z-dev.N`, e.g. `v0.2.0-dev.1` | `Unrot-0.2.0-dev.1.dmg`, dev features in |
+| `master` | a full release | `vX.Y.Z`, e.g. `v0.2.0` | `Unrot-0.2.0.dmg`, no dev features |
+
+```bash
+gh release create v0.2.0-dev.1 --target develop --prerelease --generate-notes
+```
+
+```bash
+gh release create v0.2.0 --target master --generate-notes
+```
+
+`release-dev.yml` and `release-prod.yml` both call `build-dmg.yml`, which runs
+`dmg.sh` on a `macos-26` runner. It adds install notes to the release,
+including the `xattr` command macOS needs before it will open an ad-hoc build.
+The workflow refuses a release that breaks the rules above:
+
+- a dev release not tagged `-dev`;
+- a prod release with a suffixed tag;
+- a prod release whose commit is not on `master`. Merge `develop` into
+  `master` first.
+
+Promoting a `-dev` pre-release to a full release fails for the same reason.
+
+**The version comes from the tag.** Nothing needs editing beforehand. The
+workflow runs `set-version.sh`, which stamps the tag's version into the Xcode
+project, `pyproject.toml` and `unrot.__version__`. The build number is the
+commit count, so it only ever goes up, whichever channel. The stamp is not
+committed back: the tag records what was built, and the checked-in `0.1.0` is
+only what local builds call themselves.
+
+```bash
+packaging/set-version.sh v0.2.0-dev.1 54
+```
+
+That is the same stamp, run locally. It touches tracked files, so run it on a
+throwaway tree or put the old version back afterwards.
+
+GitHub runs a release workflow from the tagged commit, so a tag cut before
+these files existed will not build.

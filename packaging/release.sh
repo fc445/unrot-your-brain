@@ -1,9 +1,14 @@
 #!/bin/sh
-# Build, sign, notarise and staple Unrot.app for distribution outside the App Store.
+# Build, sign, notarise and staple Unrot.app for distribution outside the App
+# Store, and ship it as a notarised DMG.
 #
 #   DEVELOPER_ID="Developer ID Application: Your Name (TEAMID)" \
 #   NOTARY_PROFILE=unrot-notary \
+#   [UNROT_CHANNEL=dev] \
 #   packaging/release.sh [--check]
+#
+# UNROT_CHANNEL is prod unless set; dev compiles in the code behind
+# `#if DEV_FEATURES`. For an ad-hoc DMG without a Developer ID, see dmg.sh.
 #
 # NOT YET RUN END TO END. It was written on a machine with no Developer ID
 # certificate, so the signing and notarisation steps have never executed. What
@@ -26,10 +31,12 @@ set -eu
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 out="$repo/build/release"
 check_only=false
+channel="${UNROT_CHANNEL:-prod}"
 [ "${1:-}" = "--check" ] && check_only=true
 
 fail() { echo "release: $*" >&2; exit 1; }
 
+case "$channel" in dev|prod) ;; *) fail "UNROT_CHANNEL must be dev or prod, not '$channel'" ;; esac
 : "${DEVELOPER_ID:?set DEVELOPER_ID to your Developer ID Application identity}"
 : "${NOTARY_PROFILE:?set NOTARY_PROFILE to a profile made with xcrun notarytool store-credentials}"
 
@@ -43,6 +50,7 @@ xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
   || fail "no notarisation profile '$NOTARY_PROFILE' -- run: xcrun notarytool store-credentials $NOTARY_PROFILE"
 command -v uv >/dev/null || fail "uv is not installed"
 
+echo "channel:   $channel"
 echo "identity:  $DEVELOPER_ID"
 echo "team:      $team"
 echo "notary:    $NOTARY_PROFILE"
@@ -61,6 +69,7 @@ uv run --group packaging pyinstaller "$repo/packaging/unrot-core.spec" --noconfi
 # out through packaging/sign-core.sh before Xcode seals the app around it.
 xcodebuild -project "$repo/mac/Unrot.xcodeproj" -scheme UnrotMac -configuration Release \
   -archivePath "$out/Unrot.xcarchive" archive \
+  UNROT_CHANNEL="$channel" \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$DEVELOPER_ID" DEVELOPMENT_TEAM="$team" \
   OTHER_CODE_SIGN_FLAGS="--timestamp"
 
@@ -78,6 +87,17 @@ xcrun notarytool submit "$out/Unrot-notarise.zip" --keychain-profile "$NOTARY_PR
 xcrun stapler staple "$app"
 spctl --assess --type execute --verbose=2 "$app"
 
+# --- 5. the DMG: signed and notarised in its own right, so opening it is quiet too ----
+# The app inside is already stapled, so it launches offline either way.
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
-ditto -c -k --keepParent "$app" "$out/Unrot-$version.zip"
-echo "done: $out/Unrot-$version.zip"
+if [ "$channel" = dev ]; then
+  dmg="$out/Unrot-$version-dev.dmg"; volume="Unrot (dev)"
+else
+  dmg="$out/Unrot-$version.dmg"; volume="Unrot"
+fi
+"$repo/packaging/make-dmg.sh" "$app" "$dmg" "$volume"
+codesign --sign "$DEVELOPER_ID" --timestamp "$dmg"
+xcrun notarytool submit "$dmg" --keychain-profile "$NOTARY_PROFILE" --wait
+xcrun stapler staple "$dmg"
+spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+echo "done: $dmg"

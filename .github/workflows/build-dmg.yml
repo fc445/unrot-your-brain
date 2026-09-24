@@ -1,0 +1,119 @@
+name: Build DMG
+
+# Called by release-dev.yml and release-prod.yml; not run on its own. Builds
+# Unrot.app for one channel from a release's tag, stamps the tag's version into
+# it, and attaches the DMG to that release.
+#
+# The DMG is signed ad hoc -- there is no Developer ID yet -- so the release
+# notes get the one command that lets macOS open it.
+
+on:
+  workflow_call:
+    inputs:
+      channel:
+        description: dev or prod
+        required: true
+        type: string
+      tag:
+        description: The release's tag, e.g. v0.2.0 or v0.2.0-dev.1
+        required: true
+        type: string
+
+jobs:
+  dmg:
+    runs-on: macos-26  # arm64: the frozen core is built for the runner's own arch
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    concurrency:
+      group: dmg-${{ inputs.tag }}
+      cancel-in-progress: true
+    env:
+      CHANNEL: ${{ inputs.channel }}
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0  # all branches, for the master check; the commit count is the build number
+
+      # develop is the dev channel and master is production. A prod build must
+      # be a plain vX.Y.Z tagged on master; a dev build is always tagged -dev.
+      - name: Check the tag suits the channel
+        run: |
+          case "$CHANNEL" in
+            prod)
+              printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || {
+                echo "::error::A prod release needs a plain vX.Y.Z tag, not '$TAG'."
+                exit 1
+              }
+              git merge-base --is-ancestor HEAD origin/master || {
+                echo "::error::$TAG is not on master. Prod releases are tagged on master; merge develop into master first, or make this a dev pre-release tagged -dev."
+                exit 1
+              } ;;
+            dev)
+              printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-dev(\.[0-9]+)?$' || {
+                echo "::error::A dev release is tagged vX.Y.Z-dev.N, e.g. v0.2.0-dev.1, not '$TAG'."
+                exit 1
+              } ;;
+            *) echo "::error::Unknown channel '$CHANNEL'"; exit 1 ;;
+          esac
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.14"
+          enable-cache: true
+
+      # Not committed back: the tag is the record of what was built. The build
+      # number is the commit count, so it only goes up, whichever channel.
+      - name: Stamp the version from the tag
+        run: packaging/set-version.sh "$TAG" "$(git rev-list --count HEAD)"
+
+      - name: Build the DMG
+        run: UNROT_CHANNEL="$CHANNEL" packaging/dmg.sh
+
+      - name: Name it after the tag
+        id: dmg
+        run: |
+          src="$(ls build/dmg/*.dmg)"
+          dest="build/dmg/Unrot-${TAG#v}.dmg"
+          [ "$src" = "$dest" ] || mv "$src" "$dest"
+          echo "path=$dest" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Unrot-${{ inputs.channel }}-${{ inputs.tag }}
+          path: ${{ steps.dmg.outputs.path }}
+          if-no-files-found: error
+          compression-level: 0  # a DMG is already compressed
+
+      - name: Attach it to the release
+        env:
+          DMG: ${{ steps.dmg.outputs.path }}
+        run: gh release upload "$TAG" "$DMG" --clobber
+
+      - name: Add install notes to the release
+        run: |
+          body="$(gh release view "$TAG" --json body --jq .body)"
+          case "$body" in *"<!-- unrot-install -->"*) exit 0 ;; esac
+          {
+            printf '%s\n\n' "$body"
+            printf '%s\n' '<!-- unrot-install -->' '### Installing' ''
+            if [ "$CHANNEL" = dev ]; then
+              printf '%s\n' '**Dev build.** It has the developer features switched on and uses the same data as the regular app, which it replaces in Applications.' ''
+            fi
+            printf '%s\n' \
+              'Open the DMG and drag **Unrot** to Applications. The build is not notarised by Apple yet, so macOS will refuse to open it until you run:' \
+              '' \
+              '```sh' \
+              'xattr -dr com.apple.quarantine /Applications/Unrot.app' \
+              '```' \
+              '' \
+              'Or open it once, then choose System Settings › Privacy & Security › **Open Anyway**.'
+          } > "$RUNNER_TEMP/notes.md"
+          gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md"

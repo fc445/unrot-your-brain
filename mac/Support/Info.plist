@@ -29,6 +29,11 @@
 	     shipped app must fall through to the bundled core. -->
 	<key>UnrotDevRepoPath</key>
 	<string>$(UNROT_DEV_REPO_PATH)</string>
+	<!-- "dev" or "prod", from the UNROT_CHANNEL build setting. Recorded so a
+	     built app says which it is -- packaging/dmg.sh checks it -- without
+	     anyone having to run it. -->
+	<key>UnrotChannel</key>
+	<string>$(UNROT_CHANNEL)</string>
 	<!-- "Add to unrot" in the Services menu of any app with a text selection.
 	     macOS puts third-party items under Services, not at the top level of a
 	     context menu, and that is where this is. NSRequiredContext is present
