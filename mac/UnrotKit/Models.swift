@@ -489,6 +489,35 @@ public struct RegenPass: Codable, Hashable, Sendable {
     public let detectorVersion: String
 }
 
+// MARK: - Wipe and re-run (dev builds only)
+//
+// Compiled out of prod builds along with the rest of `DEV_FEATURES` -- the
+// core route these describe (`/api/dev/wipe`) is itself refused outside dev
+// mode, but the client-side shape of it has no business existing in a prod
+// binary either. See "Dev and prod builds" in mac/README.md: UnrotKit gets
+// the same `DEV_FEATURES` condition the app does, not just UnrotMac.
+
+#if DEV_FEATURES
+/// What a wipe would discard and rebuild, read before the confirmation dialog.
+public struct DevWipePlan: Codable, Hashable, Sendable {
+    /// After a wipe, every captured session is due a re-run -- this is that count.
+    public let sessionsToRerun: Int
+    public let protectedEncounters: Int
+    public let manualEncounters: Int
+    public let explanations: Int
+    public let canRun: Bool
+}
+
+/// What one wipe actually did, and where the safety backup landed.
+public struct DevWipeResult: Codable, Hashable, Sendable {
+    public let backupPath: String
+    public let encountersRemoved: Int
+    public let otherEventsRemoved: Int
+    public let userInputDiscarded: Bool
+    public let sessionsToRerun: Int
+}
+#endif
+
 // MARK: - Export (PR-32)
 
 public struct ExportFile: Codable, Hashable, Sendable {

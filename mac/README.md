@@ -89,6 +89,23 @@ repo's `LANGSMITH_API_KEY` secret for a GitHub pre-release. It is stored as
 saved in the tab replaces the build's key. You need one for a Debug build out
 of Xcode, because Xcode does not pass one to it.
 
+It also has **Wipe and re-run**: discard every detected encounter, resolver
+judgment, grade and generated material, and re-examine every captured session
+under the model in effect now, from nothing. Unlike Advanced's *Regenerate*,
+which only updates what a new detector version disagrees with, this is a full
+reset -- for a store full of half-finished prompt experiments, not a bad
+answer here and there. Judgments, explanations and anything submitted by hand
+are kept by default; an opt-in toggle discards those too, for a completely
+empty store. A dev build shares the real `~/.unrot` with prod, so before
+anything is deleted the store is backed up to a timestamped copy in
+`~/.unrot/backups/`, and the confirmation dialog says how many sessions will
+be re-examined and that it costs model calls. The rerun itself is driven
+through the same `Regenerator` *Regenerate* uses -- one session at a time,
+stoppable, with the same progress and cost reporting. Reachable only because
+the app starts the core's process with `UNROT_DEV_FEATURES=1` in a dev build;
+the core refuses `POST /api/dev/wipe` outright without it, so the endpoint is
+unusable even against a dev-build core if something else started it.
+
 To put a build on a Mac as a DMG:
 
 ```bash

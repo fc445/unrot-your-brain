@@ -32,7 +32,7 @@ struct SettingsView: View {
             RegeneratePane(regenerator: regenerator)
                 .tabItem { Text("Advanced") }.tag(Tab.advanced)
             #if DEV_FEATURES
-            DeveloperPane(client: client, restartCore: restartCore)
+            DeveloperPane(client: client, regenerator: regenerator, restartCore: restartCore)
                 .tabItem { Text("Developer") }.tag(Tab.developer)
             #endif
         }
@@ -535,6 +535,7 @@ struct RegeneratePane: View {
 /// what stays out is the core's own wording, shown before anything is written.
 struct DeveloperPane: View {
     let client: UnrotClient
+    let regenerator: Regenerator
     let restartCore: () -> Void
     @State private var includeText = false
     @State private var preview: ExportPreview?
@@ -546,6 +547,7 @@ struct DeveloperPane: View {
         Form {
             BuildInfoSection()
             LangSmithSection(restartCore: restartCore)
+            WipeAndRerunSection(client: client, regenerator: regenerator)
             Section {
                 Text("Export for analysis writes the log and every decision the models made, with your verdicts, as JSONL files in one .zip — for an agent or a notebook to judge the models with. It is saved on this Mac, where you choose. Nothing is uploaded.")
                     .font(.system(size: 12))

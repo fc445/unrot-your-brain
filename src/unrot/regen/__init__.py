@@ -47,6 +47,7 @@ from dataclasses import dataclass, field
 
 from ..detector import detect
 from ..resolver import fingerprint, from_candidate, record_analysis, record_detection, resolve
+from .wipe import WipeResult, wipe  # noqa: F401 -- re-exported for `from ..regen import wipe`
 
 #: Events regeneration is allowed to delete. Both are `system` events, which S5
 #: defines as derived and replaceable, and the list is stated here so that
