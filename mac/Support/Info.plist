@@ -34,6 +34,12 @@
 	     anyone having to run it. -->
 	<key>UnrotChannel</key>
 	<string>$(UNROT_CHANNEL)</string>
+	<!-- Dev builds only: the default LangSmith key for the Developer tab's
+	     tracing toggle, from the UNROT_DEV_LANGSMITH_API_KEY build setting.
+	     Empty unless a build was given one; packaging/dmg.sh and release.sh
+	     never pass one to a prod build and fail one that has it. -->
+	<key>UnrotLangSmithKey</key>
+	<string>$(UNROT_DEV_LANGSMITH_API_KEY)</string>
 	<!-- "Add to unrot" in the Services menu of any app with a text selection.
 	     macOS puts third-party items under Services, not at the top level of a
 	     context menu, and that is where this is. NSRequiredContext is present

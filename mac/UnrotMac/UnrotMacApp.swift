@@ -22,6 +22,9 @@ struct UnrotMacApp: App {
                 client: delegate.client,
                 restartCore: { delegate.core.restart() }
             )
+            #if DEV_FEATURES
+            .environment(delegate.langSmith)
+            #endif
         }
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -48,6 +51,9 @@ struct UnrotMacApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let core = CoreProcess()
     let model = ModelSettings()
+    #if DEV_FEATURES
+    let langSmith = LangSmithSettings()
+    #endif
     lazy var client = UnrotClient(socketPath: core.socketPath)
     lazy var store = SurfaceStore(client: client)
     lazy var quick = QuickAccept(store: store)
@@ -87,9 +93,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         #endif
+        #if DEV_FEATURES
+        core.environmentProvider = { [model, langSmith] in
+            MainActor.assumeIsolated {
+                model.environment().merging(langSmith.environment()) { current, _ in current }
+            }
+        }
+        #else
         core.environmentProvider = { [model] in
             MainActor.assumeIsolated { model.environment() }
         }
+        #endif
         core.start()
         statusItem = StatusItemController(
             store: store,
