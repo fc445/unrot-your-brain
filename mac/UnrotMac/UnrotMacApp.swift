@@ -57,8 +57,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var client = UnrotClient(socketPath: core.socketPath)
     lazy var store = SurfaceStore(client: client)
     lazy var quick = QuickAccept(store: store)
-    lazy var watcher = Watcher(client: client, store: store, core: core)
-    lazy var regenerator = Regenerator(client: client, store: store)
+    lazy var watcher = Watcher(client: client, store: store, core: core,
+                               concurrency: { [model] in model.concurrency })
+    lazy var regenerator = Regenerator(client: client, store: store,
+                                       concurrency: { [model] in model.concurrency })
     let router = Router()
     let onboarding = Onboarding()
 

@@ -40,6 +40,11 @@ SETTINGS: dict[str, str] = {
         "Output ceiling per call, reasoning included. Default 8000; a call that"
         " hits it while thinking is asked once more to answer directly."
     ),
+    "UNROT_CONCURRENCY": (
+        "How many model calls may run at once: a session's transcript chunks,"
+        " and in the app, sessions side by side. Default 4, or 1 for a local"
+        " endpoint."
+    ),
     "LANGSMITH_API_KEY": "Optional. Traces the calls if LANGSMITH_TRACING is set.",
 }
 

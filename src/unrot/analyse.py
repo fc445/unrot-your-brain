@@ -14,12 +14,31 @@ automatic spending is a thing they switch on, not a default.
 from __future__ import annotations
 
 import sqlite3
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from .detector import detect
 from .detector.detect import DEFAULT_MAX_CANDIDATES
 from .resolver import Resolution, from_candidate, record_analysis, record_detection, resolve
+
+#: Held while an analysis or a regeneration writes to the store, so several
+#: sessions can be examined at once without their filing interleaving.
+#:
+#: Detection is where the time goes, and it is safe to run side by side: it
+#: reads the raw store and calls a model, and writes nothing. Filing is not.
+#: Each candidate's resolution reads the compiled concepts, may ask a model
+#: whether the term is one already known, and appends -- so two sessions that
+#: both met "idempotent" and resolved at the same moment would each find no
+#: concept and each create one. Holding this from the first resolution to the
+#: last write makes filing happen one session at a time, in whatever order the
+#: detections finish, which is the order it would have had anyway if the
+#: sessions had run in turn. Resolution is a small share of the time (about a
+#: sixth, measured), so serialising it costs little.
+#:
+#: In-process only. That is enough: one core per socket (`prepare_socket`), and
+#: the CLI runs one session at a time.
+FILING = threading.Lock()
 
 
 @dataclass
@@ -44,6 +63,7 @@ def analyse_session(
     detector_label: str,
     resolver_label: str,
     max_candidates: int = DEFAULT_MAX_CANDIDATES,
+    concurrency: int = 1,
 ) -> Analysis:
     """Detect, resolve every candidate, and record that the session was examined.
 
@@ -59,21 +79,23 @@ def analyse_session(
         propose=propose,
         model_label=detector_label,
         max_candidates=max_candidates,
+        concurrency=concurrency,
     )
-    resolutions = [
-        # Recompiling after each one is deliberate: the next candidate's
-        # resolution reads compiled state, and a term met twice in a session
-        # must find the concept the first mention just created.
-        resolve(conn, from_candidate(candidate), decide=decide, model_label=resolver_label)
-        for candidate in result.emitted
-    ]
-    record_detection(conn, result, max_candidates=max_candidates)
-    record_analysis(
-        conn,
-        session_id,
-        candidates_found=len(result.emitted),
-        detector_version=result.detector_version,
-    )
+    with FILING:
+        resolutions = [
+            # Recompiling after each one is deliberate: the next candidate's
+            # resolution reads compiled state, and a term met twice in a session
+            # must find the concept the first mention just created.
+            resolve(conn, from_candidate(candidate), decide=decide, model_label=resolver_label)
+            for candidate in result.emitted
+        ]
+        record_detection(conn, result, max_candidates=max_candidates)
+        record_analysis(
+            conn,
+            session_id,
+            candidates_found=len(result.emitted),
+            detector_version=result.detector_version,
+        )
     return Analysis(
         session_id=session_id,
         detector_version=result.detector_version,

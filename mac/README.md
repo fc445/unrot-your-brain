@@ -100,7 +100,7 @@ empty store. A dev build shares the real `~/.unrot` with prod, so before
 anything is deleted the store is backed up to a timestamped copy in
 `~/.unrot/backups/`, and the confirmation dialog says how many sessions will
 be re-examined and that it costs model calls. The rerun itself is driven
-through the same `Regenerator` *Regenerate* uses -- one session at a time,
+through the same `Regenerator` *Regenerate* uses -- several sessions at once,
 stoppable, with the same progress and cost reporting. Reachable only because
 the app starts the core's process with `UNROT_DEV_FEATURES=1` in a dev build;
 the core refuses `POST /api/dev/wipe` outright without it, so the endpoint is

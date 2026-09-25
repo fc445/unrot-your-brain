@@ -90,7 +90,7 @@ final class StatusItemController: NSObject {
     /// watcher's.
     private var state: TrayState {
         if !core.status.isUp || store.state == .failed { return .coreDown }
-        if watcher.analysing != nil { return .analysing }
+        if !watcher.analysing.isEmpty { return .analysing }
         if watcher.paused { return .paused }
         let waiting = store.waitingCount
         return waiting > 0 ? .waiting(waiting) : .clean

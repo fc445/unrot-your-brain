@@ -51,6 +51,11 @@ final class ModelSettings {
     /// Empty means the core's own default.
     var model: String { didSet { save(); changed = true } }
     var effort: Effort { didSet { save(); changed = true } }
+    /// How many sessions are analysed side by side, and how many parts of one
+    /// long session the core sends together (`UNROT_CONCURRENCY`).
+    var atOnce: Int { didSet { save(); changed = true } }
+    static let defaultAtOnce = 4
+    static let atOnceRange = 1...8
     private(set) var hasKey: Bool
 
     /// Settings differ from what the running core was started with.
@@ -64,6 +69,8 @@ final class ModelSettings {
         customURL = defaults.string(forKey: "UnrotCustomURL") ?? ""
         model = defaults.string(forKey: "UnrotModel") ?? ""
         effort = Effort(rawValue: defaults.string(forKey: "UnrotReasoningEffort") ?? "") ?? .core
+        let stored = defaults.integer(forKey: "UnrotConcurrency")
+        atOnce = stored == 0 ? Self.defaultAtOnce : min(max(stored, Self.atOnceRange.lowerBound), Self.atOnceRange.upperBound)
         hasKey = Keychain.has(Self.keyAccount)
     }
 
@@ -79,6 +86,11 @@ final class ModelSettings {
         hasKey = false
         changed = true
     }
+
+    /// What applies. A local server answers one request at a time, so more
+    /// would only queue there -- and each queued request would wait against the
+    /// app's timeout.
+    var concurrency: Int { endpoint == .local ? 1 : atOnce }
 
     /// Called once the core has been restarted with these settings.
     func applied() { changed = false }
@@ -105,6 +117,7 @@ final class ModelSettings {
         case .model: env["UNROT_REASONING_EFFORT"] = ""
         default: env["UNROT_REASONING_EFFORT"] = effort.rawValue
         }
+        env["UNROT_CONCURRENCY"] = String(concurrency)
         if endpoint == .local {
             // A local server wants a key to be present and ignores its value.
             // Never the real one: handing an OpenRouter key to whatever is
@@ -122,5 +135,6 @@ final class ModelSettings {
         defaults.set(customURL, forKey: "UnrotCustomURL")
         defaults.set(model, forKey: "UnrotModel")
         defaults.set(effort.rawValue, forKey: "UnrotReasoningEffort")
+        defaults.set(atOnce, forKey: "UnrotConcurrency")
     }
 }

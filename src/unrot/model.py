@@ -30,6 +30,12 @@ DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "inclusionai/ling-3.0-flash"
 DEFAULT_REASONING_EFFORT = "low"
 DEFAULT_MAX_TOKENS = 8_000
+#: How many model calls one piece of work may have in flight: a session's
+#: transcript chunks, or -- in the app -- sessions side by side. Each call is
+#: mostly waiting on the provider (a detection call takes about a minute, most of
+#: it reasoning), so four at once is close to four times the throughput. A local
+#: server usually answers one request at a time, so there it is one.
+DEFAULT_CONCURRENCY = 4
 
 
 @dataclass(frozen=True)
@@ -54,6 +60,9 @@ class ModelConfig:
     #: stop, and it should find out in about two minutes rather than ten, at a
     #: quarter of the cost. `UNROT_MAX_TOKENS` raises it for a higher effort.
     max_tokens: int = DEFAULT_MAX_TOKENS
+    #: See `DEFAULT_CONCURRENCY`. `UNROT_CONCURRENCY` sets it; `from_env` makes
+    #: it 1 for a local endpoint unless that says otherwise.
+    concurrency: int = DEFAULT_CONCURRENCY
 
     @classmethod
     def from_env(cls, **overrides) -> "ModelConfig":
@@ -62,11 +71,22 @@ class ModelConfig:
             or os.environ.get("OPENROUTER_API_KEY")
             or os.environ.get("OPENAI_API_KEY")
         )
+        base_url = (
+            overrides.pop("base_url", None)
+            or os.environ.get("UNROT_BASE_URL")
+            or DEFAULT_BASE_URL
+        )
+        concurrency = max(
+            1,
+            int(
+                overrides.pop("concurrency", None)
+                or os.environ.get("UNROT_CONCURRENCY")
+                or (1 if is_local(base_url) else DEFAULT_CONCURRENCY)
+            ),
+        )
         return cls(
             model=overrides.pop("model", None) or os.environ.get("UNROT_MODEL") or DEFAULT_MODEL,
-            base_url=overrides.pop("base_url", None)
-            or os.environ.get("UNROT_BASE_URL")
-            or DEFAULT_BASE_URL,
+            base_url=base_url,
             api_key=key,
             max_tokens=int(
                 overrides.pop("max_tokens", None)
@@ -77,6 +97,7 @@ class ModelConfig:
                 "reasoning_effort", os.environ.get("UNROT_REASONING_EFFORT", DEFAULT_REASONING_EFFORT)
             )
             or None,
+            concurrency=concurrency,
             **overrides,
         )
 

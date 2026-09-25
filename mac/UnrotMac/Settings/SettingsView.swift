@@ -347,6 +347,15 @@ struct ModelPane: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 VStack(alignment: .leading, spacing: 6) {
+                    Text("Sessions at once").font(.system(size: 13, weight: .semibold))
+                    Stepper(value: $settings.atOnce, in: ModelSettings.atOnceRange) {
+                        Text("\(settings.atOnce)").font(.system(size: 13, design: .monospaced))
+                    }
+                    Text("How many sessions are examined side by side, and how many parts of one long session are sent together. Each call is mostly waiting on the model, so four at once clears a backlog about four times sooner — the same calls, at the same cost. A server on this Mac always gets one at a time.")
+                        .font(.system(size: 11.5)).foregroundStyle(Color.inkFaint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                VStack(alignment: .leading, spacing: 6) {
                     Text("API key").font(.system(size: 13, weight: .semibold))
                     HStack(spacing: 8) {
                         SecureField("", text: $key, prompt: Text(settings.hasKey ? "A key is stored — paste to replace it" : "Paste your OpenRouter key").foregroundStyle(Color.inkFaint))

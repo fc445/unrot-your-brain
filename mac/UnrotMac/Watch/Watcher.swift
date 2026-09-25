@@ -53,8 +53,9 @@ final class Watcher {
     // MARK: State
 
     private(set) var queue: AnalysisQueue?
-    /// The session being analysed right now, if any.
-    private(set) var analysing: String?
+    /// The sessions being analysed right now -- several at once, up to the
+    /// Model settings' "Sessions at once".
+    private(set) var analysing: Set<String> = []
     private(set) var progress: (done: Int, total: Int)?
     private(set) var lastError: String?
     /// What the current batch -- or the last one, once it ends -- has spent.
@@ -86,6 +87,8 @@ final class Watcher {
     private let client: UnrotClient
     private let store: SurfaceStore
     private let core: CoreProcess
+    /// How many sessions to analyse at once, read when a batch starts.
+    private let concurrency: @MainActor () -> Int
 
     /// Transcript path -> when it last changed.
     private var changes: [String: Date] = [:]
@@ -95,10 +98,12 @@ final class Watcher {
     private var sweeper: Task<Void, Never>?
     private var runner: Task<Void, Never>?
 
-    init(client: UnrotClient, store: SurfaceStore, core: CoreProcess) {
+    init(client: UnrotClient, store: SurfaceStore, core: CoreProcess,
+         concurrency: @escaping @MainActor () -> Int = { 1 }) {
         self.client = client
         self.store = store
         self.core = core
+        self.concurrency = concurrency
         paused = defaults.bool(forKey: Keys.paused)
         autoAnalyse = defaults.bool(forKey: Keys.auto)
         quietMinutes = defaults.object(forKey: Keys.quiet) as? Int ?? Int(WatchPolicy.defaultQuiet / 60)
@@ -236,8 +241,9 @@ final class Watcher {
         runner?.cancel()
     }
 
-    /// One session at a time, so progress is real and pausing takes effect
-    /// between sessions. Stops at the first failure rather than paying for the
+    /// Several sessions at once (see `runConcurrently`), with progress counted
+    /// as each one finishes. Pausing or stopping starts no more; the ones in
+    /// flight finish. Stops at the first failure rather than paying for the
     /// same error on every remaining session.
     private func run(_ sessions: [PendingSession]) {
         runner = Task { [weak self] in
@@ -246,13 +252,18 @@ final class Watcher {
             self.progress = (0, sessions.count)
             self.lastError = nil
             self.batchSpent = nil
-            for (index, session) in sessions.enumerated() {
-                if Task.isCancelled || self.paused { break }
-                self.analysing = session.sessionId
+            await runConcurrently(
+                sessions.map(\.sessionId),
+                atMost: self.concurrency(),
+                proceed: { [weak self] in !Task.isCancelled && self?.paused == false }
+            ) { [weak self] sessionId in
+                guard let self else { return false }
+                self.analysing.insert(sessionId)
+                defer { self.analysing.remove(sessionId) }
                 var failed = false
                 do {
-                    _ = try await self.client.analyse(sessionId: session.sessionId)
-                    self.eligible.remove(session.sessionId)
+                    _ = try await self.client.analyse(sessionId: sessionId)
+                    self.eligible.remove(sessionId)
                 } catch let error as APIError {
                     if case .refused(409, let detail) = error, detail.contains("already being analysed") {
                         // Someone else is on it. Not a failure.
@@ -268,11 +279,14 @@ final class Watcher {
                 if let spent = try? await self.client.spend(since: started).window {
                     self.batchSpent = spent
                 }
-                if failed { break }
-                self.progress = (index + 1, sessions.count)
+                if failed { return false }
+                if let progress = self.progress {
+                    self.progress = (progress.done + 1, progress.total)
+                }
                 await self.store.load()
+                return true
             }
-            self.analysing = nil
+            self.analysing = []
             self.progress = nil
             self.runner = nil
             await self.store.load()

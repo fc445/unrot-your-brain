@@ -77,6 +77,7 @@ def _cmd_run(args) -> int:
             propose=propose,
             decide=decide,
             model_label=config.label,
+            concurrency=config.concurrency,
             sessions=sessions,
             max_candidates=args.max,
             force=args.force,
