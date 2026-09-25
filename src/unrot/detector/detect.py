@@ -16,6 +16,7 @@ Two filters do most of the work before any ranking happens:
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 
 from . import prompt as prompt_module
 from .candidates import IMPORTANCE, SIGNALS, Candidate, DetectionResult
@@ -51,28 +52,37 @@ def detect(
     model_label: str,
     max_candidates: int = DEFAULT_MAX_CANDIDATES,
     chunk_budget: int = 40_000,
+    concurrency: int = 1,
 ) -> DetectionResult:
     """Detect candidate gaps in one captured session.
 
     `propose` takes a rendered prompt and returns raw candidate dicts. Passing it
     in rather than building it here keeps this function free of langchain, of a
     network, and of any opinion about which model is answering.
+
+    With `concurrency` above 1, a session long enough to need several chunks
+    sends up to that many at once. The chunks are independent -- each is a
+    separate prompt over separate windows -- and their answers are gathered back
+    in chunk order, so a term flagged in two chunks is still kept from the
+    earlier one, exactly as it was when they ran in turn. A chunk that fails
+    fails the session, as before; the others still in flight finish, and are
+    billed, because a call cannot be taken back once it is sent.
     """
     version = detector_version(model_label)
     windows = build_windows(conn, session_id)
     chunks = chunk_windows(windows, budget=chunk_budget)
 
     by_line = {w.assistant_line: w for w in windows}
-    raw: list[dict] = []
-    for chunk in chunks:
-        raw.extend(
-            propose(
-                prompt_module.render(
-                    prompt_module.format_windows(chunk),
-                    max_candidates=max_candidates,
-                )
-            )
-        )
+    prompts = [
+        prompt_module.render(prompt_module.format_windows(chunk), max_candidates=max_candidates)
+        for chunk in chunks
+    ]
+    if concurrency > 1 and len(prompts) > 1:
+        with ThreadPoolExecutor(max_workers=min(concurrency, len(prompts))) as pool:
+            answers = list(pool.map(propose, prompts))
+    else:
+        answers = [propose(p) for p in prompts]
+    raw: list[dict] = [item for answer in answers for item in answer]
 
     seen: set[str] = set()
     candidates: list[Candidate] = []
