@@ -1,0 +1,37 @@
+2026-09-26T12:22:50Z build=1 pid=6277 launched from /Applications/SparkleProbe.app
+2026-09-26T12:22:50Z build=1 pid=6277 signature: cdhash=006745f3820d45ed21d26d6df805b19cd5c617ba team=none adhoc=true
+2026-09-26T12:22:50Z build=1 pid=6277 signature: valid=true status=0
+2026-09-26T12:22:50Z build=1 pid=6277 quarantine: none on /Applications/SparkleProbe.app
+2026-09-26T12:22:50Z build=1 pid=6277 sparkle: allowedChannels=[]
+2026-09-26T12:22:50Z build=1 pid=6277 keychain: SecItemCopyMatching returned -25300 after 0.00s
+2026-09-26T12:22:50Z build=1 pid=6277 sparkle: allowedChannels=[]
+2026-09-26T12:22:50Z build=1 pid=6277 driver: checking
+2026-09-26T12:22:50Z build=1 pid=6277 keychain: no item yet, created it, status=0
+2026-09-26T12:22:50Z build=1 pid=6277 sparkle: appcast loaded, items=["2[default]", "3[dev]"]
+2026-09-26T12:22:50Z build=1 pid=6277 sparkle: allowedChannels=[]
+2026-09-26T12:22:50Z build=1 pid=6277 sparkle: found update build=2 channel=default
+2026-09-26T12:22:50Z build=1 pid=6277 driver: update found build=2 -> install
+2026-09-26T12:22:50Z build=1 pid=6277 driver: downloading
+2026-09-26T12:22:50Z build=1 pid=6277 driver: extracting
+2026-09-26T12:22:50Z build=1 pid=6277 driver: ready to install -> install and relaunch
+2026-09-26T12:22:50Z build=1 pid=6277 sparkle: will install build=2
+2026-09-26T12:22:50Z build=1 pid=6277 sparkle: will relaunch
+2026-09-26T12:22:50Z build=1 pid=6277 driver: installing (terminated=false)
+2026-09-26T12:22:50Z build=2 pid=6298 launched from /Applications/SparkleProbe.app
+2026-09-26T12:22:50Z build=2 pid=6298 signature: cdhash=f011df1b5e398e5add33361a59bbbdbec0233915 team=none adhoc=true
+2026-09-26T12:22:50Z build=2 pid=6298 signature: valid=true status=0
+2026-09-26T12:22:50Z build=2 pid=6298 quarantine: none on /Applications/SparkleProbe.app
+2026-09-26T12:22:50Z build=2 pid=6298 sparkle: allowedChannels=[]
+2026-09-26T12:22:51Z build=2 pid=6298 sparkle: allowedChannels=[]
+2026-09-26T12:22:51Z build=2 pid=6298 driver: checking
+2026-09-26T12:22:51Z build=2 pid=6298 sparkle: appcast loaded, items=["2[default]", "3[dev]"]
+2026-09-26T12:22:51Z build=2 pid=6298 sparkle: allowedChannels=[]
+2026-09-26T12:22:51Z build=2 pid=6298 sparkle: no update found (You’re up to date!)
+2026-09-26T12:22:51Z build=2 pid=6298 sparkle: ABORTED SUSparkleErrorDomain#1001 You’re up to date!
+2026-09-26T12:22:58Z build=2 pid=6298 keychain: SecItemCopyMatching returned -128 after 7.59s
+2026-09-26T12:22:58Z build=2 pid=6298 keychain: read failed status=-128
+2026-09-26T12:22:58Z build=2 pid=6298 DONE no newer update for this build
+--- after: installed build 2
+Signature=adhoc
+TeamIdentifier=not set
+--- after: xattrs on the installed app: com.apple.provenance 
