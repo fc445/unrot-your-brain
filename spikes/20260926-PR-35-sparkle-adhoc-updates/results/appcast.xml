@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel><title>SparkleProbe</title>
+    <item>
+      <title>Build 2</title>
+      <sparkle:version>2</sparkle:version>
+      <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      
+      <enclosure url="http://127.0.0.1:8765/prod2.dmg" type="application/octet-stream" sparkle:edSignature="EBahfTCepyC6v2GGsL9t4nKCMERQ6AI7l2ZTFQKJId9hCQo5TTXc/e7yrtW+2LxmY6OQe+XN7XixjMZocGI+Aw==" length="1232006"/>
+    </item>
+    <item>
+      <title>Build 3</title>
+      <sparkle:version>3</sparkle:version>
+      <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <sparkle:channel>dev</sparkle:channel>
+      <enclosure url="http://127.0.0.1:8765/dev3.dmg" type="application/octet-stream" sparkle:edSignature="fi5ZxLQWFUBiYrnkYQD8H8v+NkcBw0AZ4mbZMhW0+SW1ou3uZcBDp90yPTcHHJ3HnxJBbRNjPBgf1FX+pBqcDA==" length="1234651"/>
+    </item>
+  </channel>
+</rss>

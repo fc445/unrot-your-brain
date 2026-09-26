@@ -1,0 +1,36 @@
+2026-09-26T12:24:58Z build=1 pid=7252 launched from /Applications/SparkleProbe.app
+2026-09-26T12:24:58Z build=1 pid=7252 signature: cdhash=cabcf34714217537b8ccc922d496a4f96b77ef07 team=none adhoc=true
+2026-09-26T12:24:58Z build=1 pid=7252 signature: valid=true status=0
+2026-09-26T12:24:58Z build=1 pid=7252 quarantine: none on /Applications/SparkleProbe.app
+2026-09-26T12:24:58Z build=1 pid=7252 sparkle: allowedChannels=[]
+2026-09-26T12:24:58Z build=1 pid=7252 sparkle: allowedChannels=[]
+2026-09-26T12:24:58Z build=1 pid=7252 driver: checking
+2026-09-26T12:24:58Z build=1 pid=7252 keychain: SecItemCopyMatching returned -25300 after 0.00s
+2026-09-26T12:24:58Z build=1 pid=7252 keychain: no item yet, created it, status=0
+2026-09-26T12:24:58Z build=1 pid=7252 sparkle: appcast loaded, items=["2[default]", "3[dev]"]
+2026-09-26T12:24:58Z build=1 pid=7252 sparkle: allowedChannels=[]
+2026-09-26T12:24:58Z build=1 pid=7252 sparkle: found update build=2 channel=default
+2026-09-26T12:24:58Z build=1 pid=7252 driver: update found build=2 -> install
+2026-09-26T12:24:58Z build=1 pid=7252 driver: downloading
+2026-09-26T12:24:58Z build=1 pid=7252 driver: extracting
+2026-09-26T12:24:59Z build=1 pid=7252 driver: ready to install -> install and relaunch
+2026-09-26T12:24:59Z build=1 pid=7252 sparkle: will install build=2
+2026-09-26T12:24:59Z build=1 pid=7252 sparkle: will relaunch
+2026-09-26T12:24:59Z build=1 pid=7252 driver: installing (terminated=false)
+2026-09-26T12:24:59Z build=2 pid=7282 launched from /Applications/SparkleProbe.app
+2026-09-26T12:24:59Z build=2 pid=7282 signature: cdhash=5a06f78e5c0c7401fd38c945a6ad9772eefd5e31 team=none adhoc=true
+2026-09-26T12:24:59Z build=2 pid=7282 signature: valid=true status=0
+2026-09-26T12:24:59Z build=2 pid=7282 quarantine: none on /Applications/SparkleProbe.app
+2026-09-26T12:24:59Z build=2 pid=7282 sparkle: allowedChannels=[]
+2026-09-26T12:24:59Z build=2 pid=7282 keychain: SecItemCopyMatching returned -25293 after 0.01s
+2026-09-26T12:24:59Z build=2 pid=7282 keychain: WOULD PROMPT (status -25293): this build is not on the item's access list
+2026-09-26T12:24:59Z build=2 pid=7282 sparkle: allowedChannels=[]
+2026-09-26T12:24:59Z build=2 pid=7282 driver: checking
+2026-09-26T12:24:59Z build=2 pid=7282 sparkle: appcast loaded, items=["2[default]", "3[dev]"]
+2026-09-26T12:24:59Z build=2 pid=7282 sparkle: allowedChannels=[]
+2026-09-26T12:24:59Z build=2 pid=7282 sparkle: no update found (You’re up to date!)
+2026-09-26T12:24:59Z build=2 pid=7282 DONE no newer update for this build
+--- after: installed build 2
+Signature=adhoc
+TeamIdentifier=not set
+--- after: xattrs on the installed app: com.apple.provenance 
