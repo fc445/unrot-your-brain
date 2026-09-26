@@ -114,6 +114,82 @@ NO_KEY_MESSAGE = (
 )
 
 
+def decision_client(
+    config: ModelConfig,
+    *,
+    model: str,
+    meter=None,
+    purpose: str = "other",
+    transport=None,
+):
+    """A System One classifier (Jev), as `classify(state, questions) -> response`.
+
+    Built on `langchain_typesafe.TypeSafeClassifier`, so each call is a LangChain
+    run: inside the analysis graph it nests under the node that made it, and
+    LangSmith sees the state, the questions and the probabilities it returned.
+    It still goes to OpenRouter -- the classifier appends `/v1/systemone` to the
+    root it is given, and OpenRouter serves that API.
+
+    The classifier keeps only token counts from the response, and OpenRouter's
+    price is in the same `usage` object. So the HTTP client it is handed reads
+    the raw response on its way past and gives it to the meter, and spend stays
+    priced rather than going quietly "unpriced" for every Jev call.
+
+    `transport` is for tests: an `httpx2.MockTransport` in place of the network.
+    """
+    import threading
+    import time
+    import warnings
+
+    import httpx2
+
+    from .spend import record_http
+
+    if not config.api_key:
+        raise RuntimeError(NO_KEY_MESSAGE)
+
+    last = threading.local()
+
+    def keep_payload(response) -> None:
+        response.read()
+        try:
+            last.payload = response.json()
+        except ValueError:
+            last.payload = {}
+
+    http = httpx2.Client(
+        timeout=30.0, transport=transport, event_hooks={"response": [keep_payload]}
+    )
+    with warnings.catch_warnings():
+        # "TypeSafeClassifier is in beta": known, and pinned for exactly that reason.
+        warnings.simplefilter("ignore")
+        from langchain_typesafe import TypeSafeClassifier
+
+        classifier = TypeSafeClassifier(
+            model=model,
+            api_key=config.api_key,
+            base_url=config.base_url.rstrip("/").removesuffix("/v1"),
+            client=http,
+        )
+    runnable = classifier.with_config(run_name=purpose, tags=[purpose])
+
+    def classify(state: str, questions: dict):
+        last.payload = None
+        started = time.monotonic()
+        try:
+            response = runnable.invoke({"state": state, "questions": questions})
+        except Exception as exc:
+            record_http(meter, purpose, config, error=exc, model=model, started=started)
+            raise
+        record_http(
+            meter, purpose, config, payload=last.payload or {}, model=model, started=started
+        )
+        return response
+
+    classify.model = model
+    return classify
+
+
 def structured_client(
     config: ModelConfig, schema, *, meter=None, purpose: str = "other"
 ) -> "Structured":
@@ -143,7 +219,10 @@ def structured_client(
             # Both clients are metered: the forced retry is billed too, and so
             # is the call before it that ran out of room.
             callbacks=tap(meter, purpose, config) or None,
-        ).with_structured_output(schema)
+            # The run's name in a trace: "detection" reads better beside
+            # "triage" and "resolution" than a class name does.
+            name=purpose,
+        ).with_structured_output(schema).with_config(run_name=purpose, tags=[purpose])
 
     on_openrouter = "openrouter.ai" in config.base_url
     return Structured(

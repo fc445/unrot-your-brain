@@ -18,7 +18,8 @@ typical developer know this?") Jev's "knows" was right about half the time --
 useless for holding anything back. So an empty map is not a weaker version of
 this question; it is no question at all, and triage passes everything through.
 
-Reached at OpenRouter's `/v1/systemone`, like the grader, as a plain HTTP call.
+Reached at OpenRouter's `/v1/systemone` through `langchain_typesafe`, so each
+call is traced as its own run inside the analysis graph.
 """
 
 from __future__ import annotations
@@ -26,12 +27,10 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-import urllib.request
 from dataclasses import dataclass
 
 from ..grader.jev import DEFAULT_JEV_MODEL
-from ..model import NO_KEY_MESSAGE, ModelConfig
-from ..spend import record_http
+from ..model import ModelConfig, decision_client
 
 #: The same pin as the grader, for the same reason: the probability is stored,
 #: and its provenance must name the model that produced it.
@@ -147,57 +146,33 @@ def render_state(kmap: KnowledgeMap, term: str, gloss: str | None) -> str:
     )
 
 
-def _endpoint(base_url: str) -> str:
-    return base_url.rstrip("/").removesuffix("/v1") + "/v1/systemone"
-
-
 def build_familiarity(
-    config: ModelConfig | None = None, *, model: str | None = None, meter=None
+    config: ModelConfig | None = None, *, model: str | None = None, meter=None, transport=None
 ):
     """Return `judge(term, gloss, kmap) -> dict` backed by a System One model.
 
     The dict carries `p_knows`, `confidence` and `model`. It raises on any
     failure; deciding what a failure means is the caller's business.
     """
-    config = config or ModelConfig.from_env()
-    if not config.api_key:
-        raise RuntimeError(NO_KEY_MESSAGE)
+    from langchain_typesafe import Choice
 
-    url = _endpoint(config.base_url)
+    config = config or ModelConfig.from_env()
     chosen = model or DEFAULT_FAMILIARITY_MODEL
+    classify = decision_client(
+        config, model=chosen, meter=meter, purpose="familiarity", transport=transport
+    )
+    question = Choice(instructions=QUESTION["instructions"], criteria=QUESTION["criteria"])
 
     def judge(term: str, gloss: str | None, kmap: KnowledgeMap) -> dict:
-        body = json.dumps(
-            {
-                "model": chosen,
-                "state": render_state(kmap, term, gloss),
-                "questions": {"familiar": QUESTION},
-            }
-        ).encode("utf-8")
-        request = urllib.request.Request(
-            url,
-            data=body,
-            headers={
-                "Authorization": f"Bearer {config.api_key}",
-                "Content-Type": "application/json",
-            },
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                payload = json.load(response)
-        except Exception as exc:
-            record_http(meter, "familiarity", config, error=exc, model=chosen)
-            raise
-        record_http(meter, "familiarity", config, payload=payload, model=chosen)
-
-        got = (payload.get("answers") or {}).get("familiar") or {}
-        probabilities = got.get("probabilities") or {}
+        response = classify(render_state(kmap, term, gloss), {"familiar": question})
+        answer = response.answers.get("familiar")
+        probabilities = getattr(answer, "probabilities", None) or {}
         if "knows" not in probabilities:
-            raise ValueError(f"no familiarity answer in the response: {payload!r:.200}")
+            raise ValueError(f"no familiarity answer in the response: {response!r:.200}")
         return {
-            "p_knows": float(probabilities.get("knows") or 0.0),
-            "confidence": float(got.get("confidence") or 0.0),
-            "model": payload.get("model") or chosen,
+            "p_knows": float(probabilities["knows"]),
+            "confidence": float(getattr(answer, "confidence", 0.0) or 0.0),
+            "model": response.model or chosen,
         }
 
     judge.model = chosen
