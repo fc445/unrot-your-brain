@@ -1,0 +1,13 @@
+[project]
+name = "pr-34-knowledge-map-familiarity"
+version = "0.1.0"
+description = "PR-34 spike: predict whether a person knows a new concept from their knowledge map — embeddings vs Jev"
+requires-python = ">=3.11"
+dependencies = [
+    "fastembed",
+    "wordfreq",
+    "scikit-learn",
+    "numpy",
+    "matplotlib",
+    "python-dotenv",
+]
