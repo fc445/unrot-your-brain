@@ -19,6 +19,7 @@ from ..model import DEFAULT_MODEL, ModelConfig
 from ..spend import Meter
 from ..store import compile_state
 from ..store.__main__ import open_store
+from ..triage import familiarity_from_env
 from . import deciders, match
 from . import prompt as prompt_module
 from .resolve import (
@@ -87,6 +88,10 @@ def _cmd_run(args) -> int:
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2
+    # Triage is a filter, not a requirement: off, local or keyless, analysis
+    # runs as it always did.
+    judge = familiarity_from_env(config, meter=meter)
+    triage_label = judge.model.replace("/", "-") if judge else "none"
 
     already = {
         row["session_id"]
@@ -114,6 +119,8 @@ def _cmd_run(args) -> int:
                     detector_label=config.label,
                     resolver_label=model_label,
                     max_candidates=args.max,
+                    judge=judge,
+                    triage_label=triage_label,
                 )
         finally:
             # Written even when the session failed: those calls were billed.
@@ -123,6 +130,9 @@ def _cmd_run(args) -> int:
         if analysis.clean:
             totals["clean"] += 1
             print("  clean -- nothing was leaned on that you waved through")
+
+        for verdict in analysis.held_back:
+            print(f"  - {verdict.candidate.term}  (held back: p(knows) {verdict.p_knows:.2f})")
 
         for resolution in analysis.resolutions:
             totals[resolution.decision] += 1

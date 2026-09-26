@@ -14,12 +14,13 @@ automatic spending is a thing they switch on, not a default.
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 
 from .detector import detect
 from .detector.detect import DEFAULT_MAX_CANDIDATES
 from .resolver import Resolution, from_candidate, record_analysis, record_detection, resolve
+from .triage import Triage, Verdict, triage
 
 
 @dataclass
@@ -28,6 +29,9 @@ class Analysis:
     detector_version: str
     windows_examined: int
     resolutions: list[Resolution] = field(default_factory=list)
+    #: Candidates triage judged already familiar and did not file. Recorded in
+    #: the log as `familiarity_judged`; here so a caller can say so.
+    held_back: list[Verdict] = field(default_factory=list)
 
     @property
     def clean(self) -> bool:
@@ -44,6 +48,8 @@ def analyse_session(
     detector_label: str,
     resolver_label: str,
     max_candidates: int = DEFAULT_MAX_CANDIDATES,
+    judge=None,
+    triage_label: str = "none",
 ) -> Analysis:
     """Detect, resolve every candidate, and record that the session was examined.
 
@@ -52,6 +58,10 @@ def analyse_session(
     model call that fails partway leaves the session unrecorded and therefore
     still pending; the next run re-proposes the same candidates, and their
     fingerprinted encounter ids mean they update rather than duplicate.
+
+    With a `judge`, triage stands between the two: each gap is checked against
+    what the person is known to know, and one they very likely already know is
+    held back rather than filed. Without one, this is exactly what it was.
     """
     result = detect(
         raw,
@@ -60,18 +70,27 @@ def analyse_session(
         model_label=detector_label,
         max_candidates=max_candidates,
     )
+    emitted, held_back = result.emitted, []
+    if judge is not None:
+        triaged = triage_gaps(
+            conn, result.ranked, judge=judge,
+            max_candidates=max_candidates, model_label=triage_label,
+        )
+        emitted, held_back = triaged.emitted, triaged.held_back
     resolutions = [
         # Recompiling after each one is deliberate: the next candidate's
         # resolution reads compiled state, and a term met twice in a session
         # must find the concept the first mention just created.
         resolve(conn, from_candidate(candidate), decide=decide, model_label=resolver_label)
-        for candidate in result.emitted
+        for candidate in emitted
     ]
-    record_detection(conn, result, max_candidates=max_candidates)
+    # What was filed, not what the detector's budget picked: with triage the two
+    # differ, and export joins a user's verdict to the `emitted` flag.
+    record_detection(conn, replace(result, emitted=emitted), max_candidates=max_candidates)
     record_analysis(
         conn,
         session_id,
-        candidates_found=len(result.emitted),
+        candidates_found=len(emitted),
         detector_version=result.detector_version,
     )
     return Analysis(
@@ -79,6 +98,23 @@ def analyse_session(
         detector_version=result.detector_version,
         windows_examined=result.windows_examined,
         resolutions=resolutions,
+        held_back=held_back,
+    )
+
+
+def triage_gaps(conn, ranked, *, judge, max_candidates: int, model_label: str) -> Triage:
+    """Triage the detector's gaps -- all of them, before the budget.
+
+    The detector's own `emitted` is already cut to the budget, and a candidate
+    triage holds back must not have used up a place another could fill. So this
+    starts from `ranked`, which keeps everything in rank order.
+    """
+    return triage(
+        conn,
+        [c for c in ranked if c.is_gap],
+        judge=judge,
+        max_candidates=max_candidates,
+        model_label=model_label,
     )
 
 

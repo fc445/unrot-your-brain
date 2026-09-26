@@ -339,6 +339,9 @@ class AnalysedOut(BaseModel):
     clean: bool
     #: What each candidate was filed under, in order.
     filed: list[str] = Field(default_factory=list)
+    #: Terms triage held back as very likely already known to you. Not filed,
+    #: but recorded in the log as `familiarity_judged`.
+    held_back: list[str] = Field(default_factory=list)
     windows_examined: int
     detector_version: str
     counts: dict[str, int]

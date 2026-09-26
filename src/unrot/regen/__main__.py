@@ -21,6 +21,7 @@ from ..model import DEFAULT_MODEL, ModelConfig
 from ..spend import Meter
 from ..resolver import deciders
 from ..store.__main__ import open_store
+from ..triage import familiarity_from_env
 from . import plan, regenerate
 
 load_env()
@@ -55,6 +56,7 @@ def _cmd_run(args) -> int:
         if args.no_resolver_model or not config.api_key
         else deciders.build_decider(config, meter=meter)
     )
+    judge = familiarity_from_env(config, meter=meter)
 
     sessions = args.session or None
     if sessions is None and args.limit:
@@ -81,6 +83,8 @@ def _cmd_run(args) -> int:
             max_candidates=args.max,
             force=args.force,
             meter=meter,
+            judge=judge,
+            triage_label=judge.model.replace("/", "-") if judge else "none",
         ):
             if result.skipped:
                 totals["skipped"] += 1

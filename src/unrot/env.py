@@ -40,6 +40,11 @@ SETTINGS: dict[str, str] = {
         "Output ceiling per call, reasoning included. Default 8000; a call that"
         " hits it while thinking is asked once more to answer directly."
     ),
+    "UNROT_FAMILIARITY": (
+        "on | off. Before a gap is filed, ask whether your own history says you"
+        " already know it, and hold it back if so. Default on with a hosted key;"
+        " never runs against a local endpoint."
+    ),
     "LANGSMITH_API_KEY": "Optional. Traces the calls if LANGSMITH_TRACING is set.",
 }
 
