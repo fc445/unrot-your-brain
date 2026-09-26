@@ -126,6 +126,11 @@ enum Snapshots {
         await shoot("settings-advanced", size: NSSize(width: 760, height: 560), settle: .milliseconds(900)) {
             RegeneratePane(regenerator: regenerator).frame(width: 760, height: 560)
         }
+        #if DEV_FEATURES
+        await shoot("settings-pipeline", size: NSSize(width: 760, height: 620), settle: .milliseconds(900)) {
+            Form { PipelineSection(client: kit.client) }.formStyle(.grouped).frame(width: 760, height: 620)
+        }
+        #endif
     }
 
     // MARK: - Drawing

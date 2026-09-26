@@ -19,7 +19,7 @@ SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 #: by construction, so the honest repair is to throw the whole lot away and
 #: re-fold the log, which is the same operation the design already relies on
 #: being safe. `events` is never touched.
-COMPILED_SCHEMA = 3
+COMPILED_SCHEMA = 4  # 4: compiled_encounters.spot_check
 
 
 def _drop_compiled(conn: sqlite3.Connection) -> None:

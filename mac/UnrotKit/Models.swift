@@ -105,6 +105,9 @@ public struct Encounter: Codable, Hashable, Sendable, Identifiable {
     public let resolvable: Bool
     /// The repo the session ran in, when the raw layer is on this machine.
     public let repo: String?
+    /// Triage thought you already knew this and would have held it back; it is
+    /// here to ask whether that was right. Optional so an older core decodes.
+    public let spotCheck: Bool?
 
     public var id: String { encounterId }
 }
@@ -540,4 +543,57 @@ public struct ExportPreview: Codable, Hashable, Sendable {
     /// Empty when text is included.
     public let withheld: [String]
     public let never: [String]
+}
+
+// MARK: - The pipeline report (Developer tab)
+
+/// A rate that always carries its numerator and denominator. `rate` is nil
+/// when there is nothing to divide by -- which is not the same as zero.
+public struct PipelineRatio: Codable, Hashable, Sendable {
+    public let part: Int
+    public let whole: Int
+    public let rate: Double?
+}
+
+public struct StageCost: Codable, Hashable, Sendable {
+    public let calls: Int
+    public let failed: Int
+    public let cost: Double
+    public let unpriced: Int
+    public let medianMs: Double?
+    /// Worded by the core, like every other amount: "<$0.0001", never "$0.0000".
+    public let costText: String
+}
+
+/// `unrot.pipeline_metrics.PipelineReport`: each analysis stage over a window.
+public struct PipelineReport: Codable, Hashable, Sendable {
+    public let since: String
+    public let until: String
+    public let fixturesExcluded: Int
+    public let sessions: Int
+    public let detectorCalls: Int
+    public let found: Int
+    public let gaps: Int
+    public let judged: Int
+    public let passed: Int
+    public let heldBack: Int
+    public let spotChecks: Int
+    public let notJudged: Int
+    public let filed: Int
+    public let confirmed: Int
+    public let dismissed: Int
+    public let unanswered: Int
+    public let flagPrecision: PipelineRatio
+    public let holdBackPrecision: PipelineRatio
+    /// Band label -> dismissal rate among passed candidates you answered.
+    public let calibration: [String: PipelineRatio]
+    /// Metered purpose -> calls, time and cost.
+    public let stages: [String: StageCost]
+
+    /// The bands in the order they are meant to be read. A dictionary has none.
+    public static let bands = ["under 0.1", "0.1 to 0.3", "0.3 and over"]
+    /// The stages in pipeline order, with what each is called on screen.
+    public static let stageNames = [
+        ("detection", "Finding gaps"), ("familiarity", "Checking familiarity"), ("resolution", "Filing"),
+    ]
 }

@@ -40,6 +40,7 @@ would be a thread and a progress table.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import nullcontext
@@ -228,9 +229,19 @@ def regenerate(
         protected = judged_in(conn, session_id)
         removed = _drop_stale(conn, session_id, protected)
         conn.execute(
-            "DELETE FROM events WHERE event_type IN ('session_analysed', 'familiarity_judged')"
+            "DELETE FROM events WHERE event_type = 'session_analysed'"
             "   AND json_extract(payload, '$.session_id') = ?",
             (session_id,),
+        )
+        # Triage's record goes too -- except where the person has answered the
+        # encounter it names. That record is what makes an answered spot check a
+        # spot check, and the answer is the one measure of triage's hold-backs.
+        conn.execute(
+            "DELETE FROM events WHERE event_type = 'familiarity_judged'"
+            "   AND json_extract(payload, '$.session_id') = ?"
+            "   AND coalesce(json_extract(payload, '$.encounter_id'), '') NOT IN"
+            "       (SELECT value FROM json_each(?))",
+            (session_id, json.dumps(sorted(protected))),
         )
         conn.commit()
         compile_state(conn)

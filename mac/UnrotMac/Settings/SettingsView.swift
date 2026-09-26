@@ -546,6 +546,7 @@ struct DeveloperPane: View {
     var body: some View {
         Form {
             BuildInfoSection()
+            PipelineSection(client: client)
             LangSmithSection(restartCore: restartCore)
             WipeAndRerunSection(client: client, regenerator: regenerator)
             Section {

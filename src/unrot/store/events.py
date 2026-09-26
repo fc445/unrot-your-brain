@@ -111,8 +111,9 @@ SPECS: dict[str, EventSpec] = {
     # Whether a detected gap was judged already familiar to this person, and
     # whether that held it back. Written for held-back candidates too: triage
     # labels rather than deletes, so a candidate that never reached the surface
-    # is still a fact in the history. Nothing folds it into compiled state yet;
-    # the probability is kept so a different cut is a re-reading, not a re-run.
+    # is still a fact in the history. Compile folds one thing from it -- which
+    # encounters were spot checks -- and the probability is kept so a
+    # different cut is a re-reading, not a re-run.
     "familiarity_judged": EventSpec(
         "familiarity_judged", SYSTEM, "session",
         ("term", "session_id", "p_knows", "verdict"),

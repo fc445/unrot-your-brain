@@ -184,6 +184,10 @@ extension Concept {
     /// (read.py's `bucket_for`), so the first unanswered one is enough.
     var unanswered: Encounter? { encounters.first { $0.judgment == nil } }
 
+    /// Triage would have held this back as already known, and is asking
+    /// instead. What the card's answer measures is triage, not the detector.
+    var isSpotCheck: Bool { unanswered?.spotCheck == true }
+
     var seen: String {
         switch encounterCount {
         case 1: "seen once"
