@@ -79,6 +79,24 @@ def _cmd_metrics(args) -> int:
     return 0
 
 
+def _cmd_pipeline(args) -> int:
+    """Each stage of analysis: what it did, what it cost, whether it was right."""
+    import json
+
+    from .. import pipeline_metrics
+    from ..metrics import window
+
+    conn = open_store(args.home)
+    try:
+        since = window(args.days, args.since)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    report = pipeline_metrics.compute(conn, since=since)
+    print(json.dumps(report.as_dict(), indent=2) if args.json else pipeline_metrics.render(report))
+    return 0
+
+
 def _cmd_export(args) -> int:
     """PR-32's bundle: the log and the models' decisions, flattened. Reads only."""
     from .. import export
@@ -162,6 +180,15 @@ def main(argv=None) -> int:
     p_metrics.add_argument("--since", help="from this date instead, e.g. 2026-09-22")
     p_metrics.add_argument("--json", action="store_true", help="machine-readable")
     p_metrics.set_defaults(func=_cmd_metrics)
+
+    p_pipeline = sub.add_parser(
+        "pipeline",
+        help="each analysis stage: counts, time, cost, and how often it was right (reads only)",
+    )
+    p_pipeline.add_argument("--days", type=int, help="the last N days (default 7)")
+    p_pipeline.add_argument("--since", help="from this date instead, e.g. 2026-09-22")
+    p_pipeline.add_argument("--json", action="store_true", help="machine-readable")
+    p_pipeline.set_defaults(func=_cmd_pipeline)
 
     p_export = sub.add_parser(
         "export", help="write the log and every model decision to a folder for analysis (reads only)"

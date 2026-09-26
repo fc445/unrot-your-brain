@@ -71,6 +71,7 @@ from .schemas import (
     PendingOut,
     QueueOut,
     SpendDayOut,
+    PipelineOut,
     SpendOut,
     SpendPartOut,
     SpendTotalOut,
@@ -830,6 +831,22 @@ def create_app() -> FastAPI:
             estimate=EstimateOut(**guess.as_dict()) if guess else None,
             spent_this_week=_total_out(week, local=config.local),
         )
+
+    @app.get("/api/pipeline", response_model=PipelineOut)
+    def pipeline_report(days: int = 7) -> PipelineOut:
+        """Each analysis stage over the last `days`: what it did, what it cost,
+        how long it took, and -- from your answers -- how often it was right.
+
+        The same function `store pipeline` prints. Reads the log; writes nothing.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        from .. import pipeline_metrics
+
+        since = datetime.now(timezone.utc) - timedelta(days=max(days, 1))
+        with stores() as (conn, _raw):
+            report = pipeline_metrics.compute(conn, since=since)
+        return PipelineOut(**report.as_dict())
 
     @app.get("/api/spend", response_model=SpendOut)
     def spend(since: str | None = None) -> SpendOut:

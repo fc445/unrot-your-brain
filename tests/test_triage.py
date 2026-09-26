@@ -40,6 +40,8 @@ from unrot.triage import (
 
 #: The module, not the function of the same name that the package exports.
 triage_module = importlib.import_module("unrot.triage.triage")
+#: Kept before any fixture replaces it.
+REAL_IS_SPOT_CHECK = triage_module.is_spot_check
 
 
 @pytest.fixture
@@ -53,6 +55,13 @@ def conn(home):
     connection = open_store(home)
     yield connection
     connection.close()
+
+
+@pytest.fixture(autouse=True)
+def no_spot_checks(monkeypatch):
+    """Which hold-backs become spot checks depends on a hash of the encounter id,
+    so it would decide these tests by accident. Off unless a test asks for it."""
+    monkeypatch.setattr(triage_module, "is_spot_check", lambda encounter_id: False)
 
 
 @pytest.fixture(autouse=True)
@@ -453,3 +462,115 @@ def test_the_classifier_is_asked_the_measured_question():
     assert result == {"p_knows": 0.12, "confidence": 0.8, "model": "typesafe/jev-1.13-20260917"}
     [call] = meter.calls
     assert (call.purpose, call.cost) == ("familiarity", 0.00002)
+
+
+# ---------------------------------------------------------------------------
+# Spot checks: the only way to see what triage hides
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def spot_checks_on(monkeypatch):
+    monkeypatch.setattr(triage_module, "is_spot_check", lambda encounter_id: True)
+
+
+def test_a_spot_check_is_filed_and_does_not_take_a_gaps_place(conn, raw, spot_checks_on):
+    """Triage would have held `database index` back. Asked instead, alongside the
+    full budget of gaps -- it is a different question, not a gap."""
+    person(conn, **A_MAP)
+
+    analysis = analyse_session(
+        conn, raw, "s0",
+        propose=proposes("database index", "MVCC", "write skew"),
+        decide=strict, detector_label="t", resolver_label="none",
+        judge=scripted({"database index": 0.9}), triage_label="stub",
+        max_candidates=2,
+    )
+
+    assert [r.canonical_name for r in analysis.resolutions] == ["MVCC", "write skew", "database index"]
+    assert analysis.held_back == []
+    assert {e["term"]: e["verdict"] for e in judged_events(conn)}["database index"] == "spot_check"
+    flagged = conn.execute(
+        "SELECT e.spot_check FROM compiled_encounters e JOIN compiled_concepts c USING (concept_id)"
+        " WHERE c.canonical_name = 'database index'"
+    ).fetchone()[0]
+    assert flagged == 1
+
+
+def test_the_surface_is_told_which_card_is_a_spot_check(conn, raw, home, spot_checks_on):
+    from unrot.api import read
+
+    person(conn, **A_MAP)
+    analyse_session(
+        conn, raw, "s0", propose=proposes("database index", "MVCC"),
+        decide=strict, detector_label="t", resolver_label="none",
+        judge=scripted({"database index": 0.9}), triage_label="stub",
+    )
+
+    cards = {c.name: c for c in read.concepts(conn, home)}
+    assert cards["database index"].encounters[0].spot_check is True
+    assert cards["MVCC"].encounters[0].spot_check is False
+
+
+def test_at_most_one_spot_check_a_session(conn, spot_checks_on):
+    person(conn, **A_MAP)
+
+    outcome = triage(
+        conn, [candidate("JOIN"), candidate("database index"), candidate("MVCC")],
+        judge=scripted({"JOIN": 0.9, "database index": 0.9}), max_candidates=2, cache=None,
+    )
+
+    assert [v.candidate.term for v in outcome.spot_checks] == ["JOIN"]
+    assert [v.candidate.term for v in outcome.held_back] == ["database index"]
+    assert [c.term for c in outcome.emitted] == ["MVCC", "JOIN"]
+
+
+def test_about_one_hold_back_in_five_is_a_spot_check_and_always_the_same_one():
+    real = REAL_IS_SPOT_CHECK
+    ids = [f"e-{i}" for i in range(2000)]
+
+    chosen = [i for i in ids if real(i)]
+
+    assert 300 < len(chosen) < 500
+    assert chosen == [i for i in ids if real(i)]
+
+
+def test_spot_checks_that_go_badly_switch_holding_back_off(conn):
+    """Answered spot checks are triage measured in use. Below the precision the
+    cut was chosen for, the map's cut no longer counts: nothing is held back."""
+    person(conn, **A_MAP)
+    for i in range(triage_module.SPOT_CHECK_EVIDENCE):
+        filed = resolve(conn, manual(f"spot {i}", "asked anyway"), decide=strict)
+        append(conn, "familiarity_judged", {
+            "term": f"spot {i}", "session_id": "old", "p_knows": 0.9,
+            "verdict": "spot_check", "encounter_id": filed.encounter_id,
+        }, provenance={"triage_version": "t"})
+        # Two in ten were real gaps: 80%, under the 90% bar.
+        wrong = i < 2
+        append(conn, "encounter_confirmed" if wrong else "encounter_dismissed",
+               {"encounter_id": filed.encounter_id})
+    compile_state(conn)
+
+    outcome = triage(
+        conn, [candidate("database index")],
+        judge=scripted({"database index": 0.99}), max_candidates=2, cache=None,
+    )
+
+    assert triage_module.spot_check_record(conn) == (10, 8)
+    assert outcome.cut is None and outcome.cut_source == "spot checks"
+    assert outcome.held_back == []
+
+
+def test_an_answered_spot_check_survives_regeneration(conn, raw, spot_checks_on):
+    person(conn, **A_MAP)
+    judge = scripted({"database index": 0.9})
+    run(conn, raw, propose=proposes("database index"), decide=strict,
+        model_label="v1", judge=judge, triage_label="stub")
+    [spot] = [e for e in judged_events(conn) if e["verdict"] == "spot_check"]
+    append(conn, "encounter_dismissed", {"encounter_id": spot["encounter_id"]})
+    compile_state(conn)
+
+    run(conn, raw, propose=proposes("database index"), decide=strict,
+        model_label="v2", judge=judge, triage_label="stub")
+
+    assert triage_module.spot_check_record(conn) == (1, 1)

@@ -244,3 +244,19 @@ Layer 4 of the detector funnel proposed in `docs/handover-20260926-detector-reth
 - **2026-09-26 — Jev is called through `langchain_typesafe.TypeSafeClassifier`, pinned at `0.0.1a3`,** for both the grader and triage. It is an alpha, hence the exact pin. It points at OpenRouter's `/v1/systemone`, which works with the existing key. Its response type drops OpenRouter's `usage.cost`, so `model.decision_client` hands it an `httpx2` client whose response hook keeps the raw usage for the spend meter. Jev calls stay priced rather than becoming "unpriced".
 - **Verified live:** a session with a real detector (`ling-3.0-flash`) produced `analyse session → propose → detection`. With a stub detector and the real Jev and resolver, it produced `triage → familiarity ×3` (about 250 ms and $0.00002 each, priced) and `resolve → resolution ×2`. That was against a local LangChain tracer: no LangSmith key was available, so the upload itself is unverified. The frozen core was built and contains `langgraph` and `langchain_typesafe`; it was not run end to end.
 - **Noted:** Jev is not fully deterministic. The same familiarity question returned 0.20, 0.16 and 0.19 across three calls. That is harmless for triage, which has margin around its cut, but re-runs will not reproduce probabilities exactly.
+
+---
+
+## 2026-09-26 — spot checks and the pipeline report
+
+- **2026-09-26 — One in five hold-backs is surfaced anyway, as a spot check.** A held-back candidate is otherwise never seen, so nothing could show triage hiding a real gap. The card is labelled "spot check" and says "unrot thought you already knew this… Did you?"; the same two answers apply. "I knew it" is triage right; "I didn't know this" is a gap it would have hidden. Which hold-backs become spot checks is decided by a hash of the encounter id, not at random, so a re-run picks the same ones. At most one per session, and it rides alongside the flag budget rather than taking a gap's place, because it asks a different question.
+- **2026-09-26 — Spot checks can switch triage off.** Once 10 have been answered, if fewer than 90% were really known (the same bar the cut was chosen for), triage holds nothing back (`cut_source: "spot checks"`). Answered spot checks also feed the knowledge map like any judgment, so the learned cut moves in both directions.
+- **2026-09-26 — The spot-check flag lives in triage's own event and is compiled.** `familiarity_judged` with `verdict: "spot_check"` is folded into `compiled_encounters.spot_check`. That is compiled-schema 4, and it rebuilds derived state from the log on open. The flag is sticky, and regeneration keeps `familiarity_judged` events for encounters the user has answered, so re-running a session cannot un-ask a question already answered.
+- **2026-09-26 — The pipeline report (`store pipeline`, `GET /api/pipeline`, the Developer tab) reads each stage off the log.** The funnel runs sessions → candidates → waved through → triage (passed / held back / spot-checked / not judged) → filed → answered, taken from each session's latest `detector_ran`. It also shows:
+  - flag precision;
+  - hold-back precision, which comes only from spot checks;
+  - the dismissal rate of passed candidates by p(knows) band, which should climb if the probability means anything;
+  - calls, failures, median time and cost per stage.
+
+  Amounts are worded by `spend.money`, so a stage costing a fraction of a cent shows "<$0.0001" and not "$0.0000".
+- **Verified:** 333 Python tests pass. UnrotKit's 42 Swift tests include new wire-contract tests whose JSON the core itself produced. The Debug app builds. The snapshot tool renders the spot-check card and the pipeline panel in light and dark. One existing quick-accept undo test failed once and passed on every re-run, on this branch and on `develop`; it looks timing-sensitive.

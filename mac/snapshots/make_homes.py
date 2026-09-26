@@ -165,6 +165,46 @@ def build(base: Path) -> None:
             ],
         }, provenance={"material_version": "snapshot"})
         append(conn, "material_delivered", {"material_id": "m-snapshot-textual"})
+
+    # A spot check: triage thought this was already known and asked anyway.
+    # Triage records it before the resolver files it, as in a real run.
+    append(conn, "familiarity_judged", {
+        "term": "connection pooling", "session_id": sessions[0], "p_knows": 0.82,
+        "verdict": "spot_check", "encounter_id": "e-spot", "cut": 0.5, "cut_source": "default",
+    }, provenance={"triage_version": "triage/snapshot"})
+    append(conn, "concept_created", {"concept_id": "c-pool", "canonical_name": "connection pooling"})
+    append(conn, "encounter_recorded", {
+        "encounter_id": "e-spot", "concept_id": "c-pool", "source": "transcript",
+        "paraphrase": "The worker was changed to reuse database connections from a pool instead of"
+                      " opening one per job.",
+        "pointer": {"session_id": sessions[0], "line_start": 3, "line_end": 4},
+    }, provenance={"detector_version": "detector/0.1.0+snapshot"})
+
+    # Enough pipeline activity for the Developer tab to have something to say.
+    for purpose, ms, cost in (("detection", 38_000, 0.0006), ("detection", 22_000, 0.0004),
+                              ("familiarity", 260, 0.00002), ("familiarity", 240, 0.00002),
+                              ("resolution", 9_400, 0.00014)):
+        append(conn, "model_called", {"purpose": purpose, "model": "snapshot", "ok": True,
+                                      "duration_ms": ms, "cost": cost, "session_id": sessions[0]})
+    append(conn, "familiarity_judged", {
+        "term": "retry budget", "session_id": sessions[0], "p_knows": 0.12, "verdict": "passed",
+        "encounter_id": "e-snap-passed", "cut": 0.5, "cut_source": "default",
+    }, provenance={"triage_version": "triage/snapshot"})
+    append(conn, "detector_ran", {
+        "session_id": sessions[0], "windows_examined": 6, "calls_made": 2, "max_candidates": 2,
+        "candidates": [
+            {"term": t, "signal": "accepted", "importance": "central", "rank": i + 1,
+             "line_start": 3, "line_end": 4, "emitted": eid is not None,
+             **({"encounter_id": eid} if eid else {})}
+            for i, (t, eid) in enumerate((("retry budget", "e-snap-passed"),
+                                          ("connection pooling", "e-spot"),
+                                          ("HTTP status code", None)))
+        ],
+    }, provenance={"detector_version": "detector/0.1.0+snapshot"})
+    append(conn, "familiarity_judged", {
+        "term": "HTTP status code", "session_id": sessions[0], "p_knows": 0.91, "verdict": "held_back",
+        "encounter_id": "e-snap-held", "cut": 0.5, "cut_source": "default",
+    }, provenance={"triage_version": "triage/snapshot"})
     compile_state(conn)
     conn.close()
 

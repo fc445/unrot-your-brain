@@ -36,7 +36,7 @@ from ..resolver import fingerprint, from_candidate, match
 from ..store import append
 from .familiarity import KnowledgeMap, knowledge_map
 
-TRIAGE_VERSION = "0.1.0"
+TRIAGE_VERSION = "0.2.0"
 
 #: Fewer than this many of *each* side and there is no map to judge against --
 #: PR-34 found the no-map question useless for holding anything back.
@@ -54,6 +54,22 @@ TARGET_PRECISION = 0.9
 #: Used when the map is too small to learn from. The precision-safe end of what
 #: PR-34 measured: 97% of what it held back was really known.
 DEFAULT_CUT = 0.5
+
+#: One in this many hold-backs is surfaced anyway, as a spot check: "we think
+#: you know this -- right?". A held-back candidate is otherwise never seen, so
+#: without these nothing could ever show triage hiding a real gap. Chosen by the
+#: encounter id rather than at random, so a re-run picks the same ones.
+SPOT_CHECK_EVERY = 5
+
+#: At most this many spot checks per session. They sit outside the flag budget,
+#: so this is what stops them crowding it.
+SPOT_CHECKS_PER_SESSION = 1
+
+#: Once this many spot checks have been answered, their record overrides the
+#: map: if fewer than `TARGET_PRECISION` of them were really known, triage is
+#: wrong for this person more often than it was built to be, and holds nothing
+#: back. The same bar the cut was chosen to meet, now measured in use.
+SPOT_CHECK_EVIDENCE = 10
 
 _log = logging.getLogger(__name__)
 
@@ -76,6 +92,8 @@ class Verdict:
     reason: str
     p_knows: float | None = None
     confidence: float | None = None
+    #: Would have been held back; surfaced to ask instead. Never `held_back`.
+    spot_check: bool = False
 
 
 @dataclass
@@ -85,7 +103,8 @@ class Triage:
     verdicts: list[Verdict] = field(default_factory=list)
     cut: float | None = None
     #: 'map' (learned), 'default', 'unreliable' (no cut reached the target, so
-    #: nothing is held back), or 'no map'.
+    #: nothing is held back), 'spot checks' (answered spot checks say triage is
+    #: wrong too often, so nothing is held back), or 'no map'.
     cut_source: str = "no map"
     map_known: int = 0
     map_unknown: int = 0
@@ -93,6 +112,28 @@ class Triage:
     @property
     def held_back(self) -> list[Verdict]:
         return [v for v in self.verdicts if v.held_back]
+
+    @property
+    def spot_checks(self) -> list[Verdict]:
+        return [v for v in self.verdicts if v.spot_check]
+
+
+def is_spot_check(encounter_id: str) -> bool:
+    """Whether this hold-back is one of the one-in-N asked about anyway."""
+    import hashlib
+
+    return int(hashlib.sha256(encounter_id.encode()).hexdigest()[:8], 16) % SPOT_CHECK_EVERY == 0
+
+
+def spot_check_record(conn: sqlite3.Connection) -> tuple[int, int]:
+    """(answered, right): spot checks the person has answered, and how many of
+    those they said they knew -- which is triage having been right to hold back."""
+    row = conn.execute(
+        "SELECT count(*) AS answered,"
+        "       coalesce(sum(judgment = 'dismissed'), 0) AS known"
+        "  FROM compiled_encounters WHERE spot_check = 1 AND judgment IS NOT NULL"
+    ).fetchone()
+    return row["answered"], row["known"]
 
 
 def calibrate(kmap: KnowledgeMap, judge) -> tuple[float | None, str]:
@@ -160,6 +201,10 @@ def triage(
         outcome.emitted = candidates[:max_candidates]
         return outcome
 
+    answered, right = spot_check_record(conn)
+    if outcome.cut is not None and answered >= SPOT_CHECK_EVIDENCE and right / answered < TARGET_PRECISION:
+        outcome.cut, outcome.cut_source = None, "spot checks"
+
     known = match.current(conn)
     for candidate in candidates:
         if match.exact(known, candidate.term) is not None:
@@ -177,9 +222,18 @@ def triage(
             continue
 
         p = answer["p_knows"]
+        encounter_id = fingerprint(from_candidate(candidate))
         held = outcome.cut is not None and p >= outcome.cut
+        spot = (
+            held
+            and is_spot_check(encounter_id)
+            and len(outcome.spot_checks) < SPOT_CHECKS_PER_SESSION
+        )
         outcome.verdicts.append(
-            Verdict(candidate, held, "judged", p_knows=p, confidence=answer.get("confidence"))
+            Verdict(
+                candidate, held and not spot, "judged",
+                p_knows=p, confidence=answer.get("confidence"), spot_check=spot,
+            )
         )
         append(
             conn,
@@ -191,10 +245,10 @@ def triage(
                 "line_end": candidate.line_end,
                 # The id the encounter will carry if it is filed, so a later
                 # dismissal or confirmation can be joined back to this number.
-                "encounter_id": fingerprint(from_candidate(candidate)),
+                "encounter_id": encounter_id,
                 "p_knows": p,
                 "confidence": answer.get("confidence"),
-                "verdict": "held_back" if held else "passed",
+                "verdict": "spot_check" if spot else "held_back" if held else "passed",
                 "cut": outcome.cut,
                 "cut_source": outcome.cut_source,
                 "map_known": outcome.map_known,
@@ -210,8 +264,10 @@ def triage(
             },
         )
 
-    outcome.emitted = [v.candidate for v in outcome.verdicts if not v.held_back][
-        :max_candidates
-    ]
+    # The budget is for gaps. A spot check asks a different question -- "were
+    # we right that you know this?" -- so it rides alongside rather than
+    # taking a gap's place.
+    passed = [v.candidate for v in outcome.verdicts if not v.held_back and not v.spot_check]
+    outcome.emitted = passed[:max_candidates] + [v.candidate for v in outcome.spot_checks]
     return outcome
 

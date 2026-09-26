@@ -47,6 +47,9 @@ class Encounter:
     #: The repo the session was working in, by its last path component. Read
     #: from the raw layer like `resolvable`, so absent anywhere that layer is.
     repo: str | None = None
+    #: Triage thought you already knew this and asked anyway. The card says so,
+    #: because "I knew it" here is an answer about triage, not the detector.
+    spot_check: bool = False
 
 
 @dataclass
@@ -188,6 +191,7 @@ def concepts(conn: sqlite3.Connection, root=None) -> list[Concept]:
                 line_end=row["line_end"],
                 resolvable=bool(row["session_id"]) and row["session_id"] in retained,
                 repo=repos.get(row["session_id"]) if row["session_id"] else None,
+                spot_check=bool(row["spot_check"]),
             )
         )
 

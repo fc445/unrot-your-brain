@@ -52,6 +52,10 @@ class EncounterOut(BaseModel):
     resolvable: bool = False
     #: The repo the session ran in -- provenance for the card, read locally.
     repo: str | None = None
+    #: Triage believed you already knew this and surfaced it to ask. "I knew it"
+    #: means triage was right to think so; "I didn't know this" means it would
+    #: have hidden a real gap.
+    spot_check: bool = False
 
 
 class ExplanationOut(BaseModel):
@@ -433,3 +437,47 @@ class DevWipeOut(BaseModel):
     #: Sessions the caller should now hand to `POST /api/regen`, one at a time
     #: (or drive through the existing `Regenerator`) to finish the rerun.
     sessions_to_rerun: int
+
+
+class RatioOut(BaseModel):
+    part: int
+    whole: int
+    #: None when there is nothing to divide by -- not zero.
+    rate: float | None = None
+
+
+class StageCostOut(BaseModel):
+    calls: int
+    failed: int
+    cost: float
+    unpriced: int
+    median_ms: float | None = None
+    #: Worded by the core (`spend.money`): "<$0.0001", never "$0.0000".
+    cost_text: str
+
+
+class PipelineOut(BaseModel):
+    """`unrot.pipeline_metrics.PipelineReport`, for the Developer tab."""
+
+    since: str
+    until: str
+    fixtures_excluded: int
+    sessions: int
+    detector_calls: int
+    found: int
+    gaps: int
+    judged: int
+    passed: int
+    held_back: int
+    spot_checks: int
+    not_judged: int
+    filed: int
+    confirmed: int
+    dismissed: int
+    unanswered: int
+    flag_precision: RatioOut
+    hold_back_precision: RatioOut
+    #: Band label -> dismissal rate among passed candidates you answered.
+    calibration: dict[str, RatioOut]
+    #: Purpose -> cost and time, in pipeline order.
+    stages: dict[str, StageCostOut]
