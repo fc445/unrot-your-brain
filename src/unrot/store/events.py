@@ -106,6 +106,18 @@ SPECS: dict[str, EventSpec] = {
     "resolver_judgment_corrected": EventSpec(
         "resolver_judgment_corrected", USER, "concept", ("target_event_id", "reasoning")
     ),
+    # -- triage (derived, disposable) ----------------------------------------
+    #
+    # Whether a detected gap was judged already familiar to this person, and
+    # whether that held it back. Written for held-back candidates too: triage
+    # labels rather than deletes, so a candidate that never reached the surface
+    # is still a fact in the history. Nothing folds it into compiled state yet;
+    # the probability is kept so a different cut is a re-reading, not a re-run.
+    "familiarity_judged": EventSpec(
+        "familiarity_judged", SYSTEM, "session",
+        ("term", "session_id", "p_knows", "verdict"),
+        requires_provenance=("triage_version",),
+    ),
     # -- grading (derived, disposable) ---------------------------------------
     "explanation_graded": EventSpec(
         "explanation_graded", SYSTEM, "concept",

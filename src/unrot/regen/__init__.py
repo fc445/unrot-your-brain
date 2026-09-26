@@ -43,16 +43,18 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterator
 from contextlib import nullcontext
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from ..detector import detect
 from ..resolver import fingerprint, from_candidate, record_analysis, record_detection, resolve
 from .wipe import WipeResult, wipe  # noqa: F401 -- re-exported for `from ..regen import wipe`
 
-#: Events regeneration is allowed to delete. Both are `system` events, which S5
+#: Events regeneration is allowed to delete. All are `system` events, which S5
 #: defines as derived and replaceable, and the list is stated here so that
 #: widening it is a deliberate edit rather than a side effect of a refactor.
-REPLACEABLE = ("encounter_recorded", "session_analysed")
+#: `familiarity_judged` is here because triage re-judges every candidate a
+#: re-run finds; keeping the old ones would leave two answers for one moment.
+REPLACEABLE = ("encounter_recorded", "session_analysed", "familiarity_judged")
 
 
 @dataclass
@@ -198,6 +200,8 @@ def regenerate(
     max_candidates: int = 2,
     force: bool = False,
     meter=None,
+    judge=None,
+    triage_label: str = "none",
 ) -> Iterator[SessionPass]:
     """Re-run the detector over history, one session at a time.
 
@@ -210,6 +214,7 @@ def regenerate(
     down with the session's commit. A session that fails leaves its calls in
     the meter; the caller flushes them.
     """
+    from ..analyse import triage_gaps
     from ..detector import detector_version as version_of
     from ..store import compile_state
 
@@ -225,7 +230,7 @@ def regenerate(
         protected = judged_in(conn, session_id)
         removed = _drop_stale(conn, session_id, protected)
         conn.execute(
-            "DELETE FROM events WHERE event_type = 'session_analysed'"
+            "DELETE FROM events WHERE event_type IN ('session_analysed', 'familiarity_judged')"
             "   AND json_extract(payload, '$.session_id') = ?",
             (session_id,),
         )
@@ -241,8 +246,17 @@ def regenerate(
                 max_candidates=max_candidates,
             )
 
+            emitted = result.emitted
+            if judge is not None:
+                # The same triage live analysis applies, so a regenerated
+                # history holds back what a fresh analysis would have.
+                emitted = triage_gaps(
+                    conn, result.ranked, judge=judge,
+                    max_candidates=max_candidates, model_label=triage_label,
+                ).emitted
+
             recorded = 0
-            for candidate in result.emitted:
+            for candidate in emitted:
                 submission = from_candidate(candidate)
                 # The conservative rule, at the one line where it is enforced. The
                 # new detector may well flag this same term at these same lines --
@@ -262,11 +276,11 @@ def regenerate(
 
         # Not in REPLACEABLE: the next pass adds its own run beside this one,
         # so the log keeps what every detector version said about the session.
-        record_detection(conn, result, max_candidates=max_candidates)
+        record_detection(conn, replace(result, emitted=emitted), max_candidates=max_candidates)
         record_analysis(
             conn,
             session_id,
-            candidates_found=len(result.emitted),
+            candidates_found=len(emitted),
             detector_version=result.detector_version,
             recompile=False,
         )

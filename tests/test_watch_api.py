@@ -65,6 +65,9 @@ def with_analyser(monkeypatch, propose):
 
     label = ModelConfig.from_env().label
     monkeypatch.setattr(app_module, "_build_analyser", lambda meter=None: (propose, strict, label, label))
+    # Triage would otherwise build a real classifier from whatever key the
+    # machine has. Its own behaviour is tested in test_triage.py.
+    monkeypatch.setattr(app_module, "_build_triage", lambda meter=None: (None, "none"))
 
 
 # --- capture ----------------------------------------------------------------
