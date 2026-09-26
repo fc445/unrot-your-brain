@@ -12,7 +12,6 @@ written down rather than vanishing.
 from __future__ import annotations
 
 import importlib
-import io
 import json
 import sqlite3
 
@@ -418,31 +417,39 @@ def test_it_needs_a_key(monkeypatch):
     assert familiarity_from_env(ModelConfig(api_key=None)) is None
 
 
-def test_the_classifier_is_asked_the_measured_question(monkeypatch):
+def test_the_classifier_is_asked_the_measured_question():
     """The map goes in as text, known and not known, with the new concept last --
     the layout PR-34 measured -- and the answer comes back as a probability."""
-    sent = {}
+    import httpx2
 
-    def fake_urlopen(request, timeout):
-        sent.update(url=request.full_url, body=json.loads(request.data))
-        return io.BytesIO(json.dumps({
-            "model": "typesafe/jev-1.13-20260917",
-            "answers": {"familiar": {"choice": "does_not_know",
-                                     "probabilities": {"knows": 0.12, "does_not_know": 0.88},
-                                     "confidence": 0.8}},
-            "usage": {"cost": 0.00002},
-        }).encode())
-
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    from unrot.spend import Meter
     from unrot.triage import Entry
 
-    judge = build_familiarity(ModelConfig(api_key="x"))
-    kmap = KnowledgeMap((Entry("Postgres", "a relational database"),), (Entry("WAL"),))
-    answer = judge("MVCC", "readers don't block writers", kmap)
+    sent = []
 
-    assert sent["url"] == "https://openrouter.ai/api/v1/systemone"
-    state = sent["body"]["state"]
+    def answer(request):
+        sent.append(request)
+        return httpx2.Response(200, json={
+            "model": "typesafe/jev-1.13-20260917",
+            "answers": {"familiar": {"type": "choice", "choice": "does_not_know",
+                                     "probabilities": {"knows": 0.12, "does_not_know": 0.88},
+                                     "confidence": 0.8}},
+            "usage": {"input_tokens": 300, "output_tokens": 30, "cost": 0.00002},
+        })
+
+    meter = Meter()
+    judge = build_familiarity(
+        ModelConfig(api_key="x"), meter=meter, transport=httpx2.MockTransport(answer)
+    )
+    kmap = KnowledgeMap((Entry("Postgres", "a relational database"),), (Entry("WAL"),))
+    result = judge("MVCC", "readers don't block writers", kmap)
+
+    [request] = sent
+    assert str(request.url) == "https://openrouter.ai/api/v1/systemone"
+    state = json.loads(request.content)["state"]
     assert "KNOWS:\n- Postgres: a relational database" in state
     assert "does NOT know:\n- WAL" in state
     assert state.endswith("NEW CONCEPT: MVCC: readers don't block writers")
-    assert answer == {"p_knows": 0.12, "confidence": 0.8, "model": "typesafe/jev-1.13-20260917"}
+    assert result == {"p_knows": 0.12, "confidence": 0.8, "model": "typesafe/jev-1.13-20260917"}
+    [call] = meter.calls
+    assert (call.purpose, call.cost) == ("familiarity", 0.00002)

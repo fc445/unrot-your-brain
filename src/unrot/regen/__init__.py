@@ -43,10 +43,8 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterator
 from contextlib import nullcontext
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
-from ..detector import detect
-from ..resolver import fingerprint, from_candidate, record_analysis, record_detection, resolve
 from .wipe import WipeResult, wipe  # noqa: F401 -- re-exported for `from ..regen import wipe`
 
 #: Events regeneration is allowed to delete. All are `system` events, which S5
@@ -214,7 +212,7 @@ def regenerate(
     down with the session's commit. A session that fails leaves its calls in
     the meter; the caller flushes them.
     """
-    from ..analyse import triage_gaps
+    from ..pipeline import Deps, run_session
     from ..detector import detector_version as version_of
     from ..store import compile_state
 
@@ -238,52 +236,23 @@ def regenerate(
         compile_state(conn)
 
         with meter.about(session_id=session_id) if meter else nullcontext():
-            result = detect(
-                raw,
+            # The same graph live analysis runs -- triage included, so a
+            # regenerated history holds back what a fresh analysis would have --
+            # with the judged encounters protected and one compile per session.
+            # `detector_ran` is not in REPLACEABLE: the next pass adds its own run
+            # beside this one, so the log keeps what every detector version said.
+            run = run_session(
                 session_id,
-                propose=propose,
-                model_label=model_label,
-                max_candidates=max_candidates,
+                Deps(
+                    conn=conn, raw=raw, propose=propose, decide=decide,
+                    detector_label=model_label, resolver_label=model_label,
+                    max_candidates=max_candidates, judge=judge, triage_label=triage_label,
+                    protected=frozenset(protected), recompile=False,
+                ),
+                run_name="regenerate session",
             )
+            recorded = len(run.resolutions)
 
-            emitted = result.emitted
-            if judge is not None:
-                # The same triage live analysis applies, so a regenerated
-                # history holds back what a fresh analysis would have.
-                emitted = triage_gaps(
-                    conn, result.ranked, judge=judge,
-                    max_candidates=max_candidates, model_label=triage_label,
-                ).emitted
-
-            recorded = 0
-            for candidate in emitted:
-                submission = from_candidate(candidate)
-                # The conservative rule, at the one line where it is enforced. The
-                # new detector may well flag this same term at these same lines --
-                # and it is still not allowed to touch it, because the user has
-                # already said something about it and a fresh `encounter_recorded`
-                # would supersede the paraphrase they judged.
-                if fingerprint(submission) in protected:
-                    continue
-                resolve(
-                    conn,
-                    submission,
-                    decide=decide,
-                    model_label=model_label,
-                    recompile=False,
-                )
-                recorded += 1
-
-        # Not in REPLACEABLE: the next pass adds its own run beside this one,
-        # so the log keeps what every detector version said about the session.
-        record_detection(conn, replace(result, emitted=emitted), max_candidates=max_candidates)
-        record_analysis(
-            conn,
-            session_id,
-            candidates_found=len(emitted),
-            detector_version=result.detector_version,
-            recompile=False,
-        )
         conn.commit()
         if meter is not None:
             meter.flush(conn)

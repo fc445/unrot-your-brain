@@ -446,30 +446,34 @@ def test_local_is_decided_by_the_endpoint():
 
 
 def test_the_grader_and_search_calls_are_metered_too(monkeypatch):
-    """The two calls that are plain HTTP rather than langchain."""
-    import io
+    """The calls that do not go through the chat client."""
+    import httpx2
 
     from unrot.grader import jev
 
-    def fake(request, timeout):
-        del request, timeout
-        return io.BytesIO(json.dumps({
-            "answers": {"solo": {"probabilities": {"causal": 0.9}, "confidence": 0.9}},
+    def answer(request):
+        del request
+        return httpx2.Response(200, json={
+            "model": "typesafe/jev-1.13-x",
+            "answers": {"solo": {"type": "choice", "choice": "causal",
+                                 "probabilities": {"causal": 0.9}, "confidence": 0.9}},
             "usage": {"prompt_tokens": 40, "completion_tokens": 1, "cost": 0.00002},
-        }).encode())
+        })
 
-    monkeypatch.setattr(jev.urllib.request, "urlopen", fake)
     monkeypatch.setattr("unrot.model.is_local", lambda _url: False)
     meter = spend.Meter()
-    jev.build_jev_grader(ModelConfig(api_key="k"), meter=meter)("Why?", "Because.")
+    jev.build_jev_grader(
+        ModelConfig(api_key="k"), meter=meter, transport=httpx2.MockTransport(answer)
+    )("Why?", "Because.")
 
     [call] = meter.calls
     assert (call.purpose, call.model, call.cost) == ("grading", jev.DEFAULT_JEV_MODEL, 0.00002)
 
-    def broken(request, timeout):
-        raise TimeoutError("slow")
+    def broken(request):
+        raise httpx2.ReadTimeout("slow", request=request)
 
-    monkeypatch.setattr(jev.urllib.request, "urlopen", broken)
-    with pytest.raises(TimeoutError):
-        jev.build_jev_grader(ModelConfig(api_key="k"), meter=meter)("Why?", "Because.")
+    with pytest.raises(Exception):
+        jev.build_jev_grader(
+            ModelConfig(api_key="k"), meter=meter, transport=httpx2.MockTransport(broken)
+        )("Why?", "Because.")
     assert meter.calls[-1].ok is False and meter.calls[-1].cost is None

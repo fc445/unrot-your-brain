@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from ..detector.candidates import Candidate
 from ..resolver import fingerprint, from_candidate, match
 from ..store import append
-from .familiarity import Entry, KnowledgeMap, knowledge_map
+from .familiarity import KnowledgeMap, knowledge_map
 
 TRIAGE_VERSION = "0.1.0"
 

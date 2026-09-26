@@ -24,19 +24,13 @@ somewhere else, or not at all. `grade.py` treats reasoning as optional for
 exactly this reason.
 
 Reached through OpenRouter like everything else here, but at `/v1/systemone`
-rather than `/chat/completions` -- so it does not go through `structured_client`
-and is a plain HTTP call instead.
+rather than `/chat/completions`, through `langchain_typesafe` -- so each grade is
+a traced run rather than an HTTP call LangSmith never sees.
 """
 
 from __future__ import annotations
 
-import json
-import time
-import urllib.error
-import urllib.request
-
-from ..model import NO_KEY_MESSAGE, ModelConfig
-from ..spend import record_http
+from ..model import ModelConfig, decision_client
 from ..store import SOLO_LEVELS
 
 #: The default. Pinned to a minor version rather than an alias: the grade is
@@ -69,13 +63,8 @@ INSTRUCTIONS = (
 )
 
 
-def _endpoint(base_url: str) -> str:
-    """`/v1/systemone` alongside whatever `/v1` the config points at."""
-    return base_url.rstrip("/").removesuffix("/v1") + "/v1/systemone"
-
-
 def build_jev_grader(
-    config: ModelConfig | None = None, *, model: str | None = None, meter=None
+    config: ModelConfig | None = None, *, model: str | None = None, meter=None, transport=None
 ):
     """Return `grade_fn(question, answer) -> dict` backed by a System One model.
 
@@ -83,60 +72,30 @@ def build_jev_grader(
     `level`, and no `reasoning` -- the caller decides whether to source that
     separately.
     """
-    config = config or ModelConfig.from_env()
-    if not config.api_key:
-        raise RuntimeError(NO_KEY_MESSAGE)
+    from langchain_typesafe import Choice
 
-    url = _endpoint(config.base_url)
+    config = config or ModelConfig.from_env()
     chosen = model or DEFAULT_JEV_MODEL
+    classify = decision_client(
+        config, model=chosen, meter=meter, purpose="grading", transport=transport
+    )
+    solo = Choice(instructions=INSTRUCTIONS, criteria=CRITERIA)
 
     def grade_fn(question: str, answer: str) -> dict:
-        body = json.dumps(
-            {
-                "model": chosen,
-                # Both halves, because the same answer means different things
-                # under different questions -- which is the whole reason the
-                # question is stored verbatim beside it.
-                "state": f"Question: {question}\nAnswer: {answer}",
-                "questions": {
-                    "solo": {
-                        "type": "choice",
-                        "instructions": INSTRUCTIONS,
-                        "criteria": CRITERIA,
-                    }
-                },
-            }
-        ).encode("utf-8")
-
-        request = urllib.request.Request(
-            url,
-            data=body,
-            headers={
-                "Authorization": f"Bearer {config.api_key}",
-                "Content-Type": "application/json",
-            },
-        )
-        started = time.monotonic()
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                payload = json.load(response)
-        except Exception as exc:
-            record_http(meter, "grading", config, error=exc, model=chosen, started=started)
-            raise
-        record_http(meter, "grading", config, payload=payload, model=chosen, started=started)
-
-        got = (payload.get("answers") or {}).get("solo") or {}
-        probabilities = {
-            level: float(got.get("probabilities", {}).get(level) or 0.0)
-            for level in SOLO_LEVELS
-        }
+        # Both halves, because the same answer means different things under
+        # different questions -- which is the whole reason the question is
+        # stored verbatim beside it.
+        response = classify(f"Question: {question}\nAnswer: {answer}", {"solo": solo})
+        got = response.answers.get("solo")
+        given = getattr(got, "probabilities", None) or {}
+        probabilities = {level: float(given.get(level) or 0.0) for level in SOLO_LEVELS}
         return {
             # Taken from the distribution rather than from `choice`, so the
             # level and the probabilities stored beside it can never disagree.
             "level": max(probabilities, key=probabilities.get),
             "probabilities": probabilities,
-            "confidence": float(got.get("confidence") or 0.0),
-            "model": payload.get("model"),
+            "confidence": float(getattr(got, "confidence", 0.0) or 0.0),
+            "model": response.model,
         }
 
     return grade_fn

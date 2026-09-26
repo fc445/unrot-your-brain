@@ -5,15 +5,20 @@ description = "Detects concepts you accepted from an AI agent without understand
 readme = "README.md"
 requires-python = ">=3.11"
 # The store and capture layers are deliberately stdlib-only; these are the
-# detector's, and nothing below `unrot.detector` imports them. LangChain is here
-# for the OpenAI-compatible client and for LangSmith tracing, which the repo
-# already uses -- not for an agent framework: the detector is one call, not a graph.
+# model layer's, and nothing below `unrot.detector` imports them. Analysis is a
+# LangGraph graph (`unrot.pipeline`): one run per session, so LangSmith sees one
+# linked trace rather than a scatter of unrelated calls. LangChain's integrations
+# are the clients inside its nodes -- the OpenAI-compatible chat model, and
+# TypeSafe's classifier for Jev. langchain-typesafe is an alpha and is pinned
+# exactly: its request and response shapes may still move.
 # fastapi/uvicorn are not optional: per the PRD the standalone surface IS the
 # product -- Claude Code integration is capture-only -- so the thing that serves
 # it is a dependency of the thing, not an extra.
 dependencies = [
     "fastapi>=0.115",
     "langchain-openai>=0.2",
+    "langchain-typesafe==0.0.1a3",
+    "langgraph>=1.2",
     "pydantic>=2.7",
     "python-dotenv>=1.0",
     "uvicorn>=0.30",
