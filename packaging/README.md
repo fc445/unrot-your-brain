@@ -101,6 +101,39 @@ scripts fail a `prod` build that still ends up with a key. Both call
 `make-dmg.sh`, so the image is laid out one way. See "Dev and prod builds" in
 [`mac/README.md`](../mac/README.md).
 
+## Branches and CI
+
+Everything reaches `develop` and `master` through a PR, and a PR merges only
+once `ci.yml`'s **CI ok** check has passed. That check runs the Python tests,
+builds the UI, and builds and tests the Mac app. So every commit a release can
+be cut from has already passed CI.
+
+| Branch | Takes PRs from | Merged by | Why |
+|---|---|---|---|
+| `develop` | feature branches | squash | one commit per change, linear history |
+| `master` | `develop` only | merge commit | `master` stays a descendant of `develop`, so the next promotion merges cleanly |
+
+To promote to production, open a PR from `develop` into `master` and merge it
+with a merge commit. Squashing or rebasing would give `master` copies of
+`develop`'s commits rather than the commits themselves, and every promotion
+after that would conflict. A PR into `master` from any other branch fails CI's
+**Promotion source** check. A fix that is needed in production goes to
+`develop` first.
+
+Neither branch can be force-pushed or deleted, and neither needs an approving
+review, since there is one maintainer. A repo admin can still merge a PR whose
+checks fail, for example when a runner is down, but cannot push to either
+branch directly. Release tags (`v*`) cannot be moved or deleted. A release
+that fails gets a new version, not the old tag reused, because installed apps
+may already have seen the old one in the appcast.
+
+These rules are GitHub rulesets, kept in [`.github/rulesets/`](../.github/rulesets).
+After editing one, run this with admin on the repo:
+
+```bash
+.github/rulesets/apply.sh
+```
+
 ## Releasing from GitHub
 
 `develop` is the dev branch and `master` is production. Merging does not

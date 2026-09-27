@@ -1,0 +1,122 @@
+name: CI
+
+# Runs on every PR into develop or master, and on every push to them. The
+# rulesets on both branches require the "CI ok" check, so nothing lands on
+# either without passing it, and every commit a release is tagged on already
+# has. Releases themselves are release-dev.yml and release-prod.yml.
+#
+# "CI ok" is the only check the rulesets name. Add, rename or drop a job here
+# and the rulesets need no change, as long as "CI ok" still needs it.
+
+on:
+  pull_request:
+    branches: [develop, master]
+  push:
+    branches: [develop, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to a PR supersedes the run before it. Pushes to develop and
+# master are never cancelled: each one is a commit a release may be cut from.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  python:
+    name: Python tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      # setup-uv publishes no floating major tag (there is no @v10), so pin
+      # the full version.
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.14"
+          enable-cache: true
+
+      - run: uv sync --locked
+      - run: uv run pytest
+
+  ui:
+    name: UI build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build  # tsc -b, then vite build
+
+  mac:
+    name: Mac build and tests
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # Through schemes, never -target: see mac/README.md. Unsigned, since
+      # nothing here is run outside the test host.
+      - name: UnrotKit tests
+        run: >-
+          xcodebuild -project mac/Unrot.xcodeproj -scheme UnrotKit
+          -configuration Debug CODE_SIGNING_ALLOWED=NO test
+
+      - name: UnrotKit builds for iOS
+        run: >-
+          xcodebuild -project mac/Unrot.xcodeproj -scheme UnrotKit
+          -sdk iphonesimulator -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO build
+
+      - name: UnrotMac builds
+        run: >-
+          xcodebuild -project mac/Unrot.xcodeproj -scheme UnrotMac
+          -configuration Debug CODE_SIGNING_ALLOWED=NO build
+
+  # master is production, and only develop is promoted to it. Anything else
+  # goes to develop first. A fork's branch called develop does not count.
+  promotion:
+    name: Promotion source
+    if: github.event_name == 'pull_request' && github.base_ref == 'master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          if [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ] || [ "$HEAD_REF" != develop ]; then
+            echo "::error::Only develop is merged into master, not $HEAD_REPO:$HEAD_REF. Open this PR against develop instead."
+            exit 1
+          fi
+
+  ok:
+    name: CI ok
+    if: always()
+    needs: [python, ui, mac, promotion]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      # Skipped is fine (the promotion check outside master PRs); failed or
+      # cancelled is not.
+      - env:
+          FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS"
+          [ "$FAILED" = false ]
