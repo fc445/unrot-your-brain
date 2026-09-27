@@ -182,6 +182,8 @@ private struct GradedPanel: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(chosen ? level.tint.opacity(0.1) : Color.sunk, in: RoundedRectangle(cornerRadius: 7))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(chosen ? level.tint : Color.clear, lineWidth: 1.5))
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(chosen ? .isSelected : [])
                 }
             }
             // Absent means "not measured", not "flat": no bars rather than
@@ -206,6 +208,9 @@ private struct GradedPanel: View {
                                 .frame(width: 36, alignment: .trailing)
                         }
                         .foregroundStyle(Color.inkSoft)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(level.label)
+                        .accessibilityValue(value.formatted(.percent.precision(.fractionLength(0))))
                     }
                 }
             }

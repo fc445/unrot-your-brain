@@ -39,7 +39,7 @@ struct TrayPopover: View {
             if let next = upNext {
                 Divider()
                 HStack(spacing: 8) {
-                    Circle().fill(Color.bucketOpen).frame(width: 7, height: 7)
+                    Circle().fill(Color.bucketOpen).frame(width: 7, height: 7).accessibilityHidden(true)
                     Text(next.name).font(.system(size: 13))
                     Spacer()
                     Text("next").font(.system(size: 11.5)).foregroundStyle(Color.inkFaint)

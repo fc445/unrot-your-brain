@@ -80,6 +80,14 @@ enum Snapshots {
     /// Everything that needs a populated store.
     private static func shootFull(_ kit: Kit) async {
         let store = kit.store
+        // Accessibility › Increase Contrast, which the palette answers with
+        // stronger text and rules.
+        await shootWindow(
+            "main-full-contrast",
+            appearances: [("light", .accessibilityHighContrastAqua), ("dark", .accessibilityHighContrastDarkAqua)]
+        ) {
+            RootView(core: kit.core, store: store, quick: kit.quick, watcher: kit.watcher, router: Router())
+        }
         for (tag, bucket) in [("learning", Bucket.learning), ("closed", .closed)] {
             let router = Router()
             router.list = bucket
@@ -199,9 +207,10 @@ enum Snapshots {
     private static func shootWindow<V: View>(
         _ name: String,
         size: NSSize = NSSize(width: 1040, height: 760),
+        appearances: [(String, NSAppearance.Name)] = [("light", .aqua), ("dark", .darkAqua)],
         @ViewBuilder _ content: () -> V
     ) async {
-        for (suffix, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+        for (suffix, appearance) in appearances {
             let hosting = NSHostingView(rootView: content())
             hosting.sceneBridgingOptions = [.toolbars, .title]
             let window = NSWindow(

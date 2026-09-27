@@ -131,9 +131,10 @@ final class StatusItemController: NSObject {
         animate(now.state == .analysing)
     }
 
-    /// The one animation, and only while something is being analysed.
+    /// The one animation, and only while something is being analysed -- and not
+    /// at all under Reduce Motion, where the analysing glyph holds still.
     private func animate(_ on: Bool) {
-        if on, spinner == nil {
+        if on, spinner == nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             spinner = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
                 Task { @MainActor in
                     guard let self else { return }

@@ -18,6 +18,9 @@ struct GapCardView: View {
     let quick: QuickAccept
     let router: Router
     var isFocused = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var gap: GapActions { GapActions(concept: concept, quick: quick, router: router) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -72,7 +75,20 @@ struct GapCardView: View {
                 .stroke(isFocused ? Color.accentColor : Color.rule, lineWidth: isFocused ? 2 : 1)
         )
         .opacity(store.isBusy(concept) ? 0.55 : 1)
-        .animation(.easeOut(duration: 0.12), value: isFocused)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isFocused)
+        // One group per card, named for the concept, so VoiceOver can move card
+        // by card -- and the card's answers as actions on it, so they can be
+        // given without hunting for the buttons inside.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(concept.name)
+        .accessibilityActions {
+            if gap.canAnswer {
+                Button("I didn't know this") { gap.answer(.confirm) }
+                Button("I knew it") { gap.answer(.dismiss) }
+            }
+            if gap.canExplain { Button("Explain it") { gap.explain() } }
+            if gap.canShowMoment { Button("Show the moment") { gap.showMoment() } }
+        }
     }
 
     private var header: some View {

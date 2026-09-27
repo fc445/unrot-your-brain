@@ -125,6 +125,9 @@ struct Keycap: View {
                     .fill(inverted ? Color.paper.opacity(0.15) : Color.sunk)
             )
             .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.rule, lineWidth: inverted ? 0 : 1))
+            // A hint for the eye. VoiceOver already reads the button it sits in,
+            // and "D" on its own after it would be noise.
+            .accessibilityHidden(true)
     }
 }
 
