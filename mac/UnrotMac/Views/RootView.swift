@@ -70,7 +70,9 @@ struct RootView: View {
                 await store.load()
             }
         }
-        .onChange(of: quick.undoable) { _, answer in
+        // Follows the last answer rather than the strip, so Edit › Undo
+        // outlives the strip's eight seconds.
+        .onChange(of: quick.lastAnswer) { _, answer in
             undoManager?.removeAllActions(withTarget: quick)
             guard let answer else { return }
             undoManager?.registerUndo(withTarget: quick) { target in

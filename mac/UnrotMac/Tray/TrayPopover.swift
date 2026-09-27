@@ -222,9 +222,10 @@ struct QuickKeys: View {
     }
 }
 
-/// Eight seconds to take it back. A confirmation dialog would tax every correct
-/// answer to guard against the rare wrong one; this costs nothing when you were
-/// right, and the undo is a correcting event, so the mis-key stays in the log.
+/// Eight seconds of saying an undo exists. A confirmation dialog would tax every
+/// correct answer to guard against the rare wrong one; this costs nothing when
+/// you were right, and the undo is a correcting event, so the mis-key stays in
+/// the log. The undo itself lasts until the next answer (Edit › Undo).
 struct UndoStrip: View {
     let answer: QuickAccept.Answer
     let undo: () -> Void
@@ -236,7 +237,7 @@ struct UndoStrip: View {
                 Text(answer.sentence)
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(Color.bucketLearning)
-                Text("Stays for eight seconds, then commits.")
+                Text("Edit › Undo takes it back until your next answer.")
                     .font(.system(size: 11))
                     .foregroundStyle(Color.inkSoft)
             }
