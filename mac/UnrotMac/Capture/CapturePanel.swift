@@ -155,7 +155,7 @@ struct CaptureView: View {
                 Image(nsImage: TrayGlyph.image(for: .waiting(0)))
                     .renderingMode(.template)
                     .foregroundStyle(Color.inkPrimary)
-                Text("Add a gap").font(.system(size: 15, weight: .semibold))
+                Text("Add a gap").font(.system(.title3, weight: .semibold))
             }
 
             switch model.phase {
@@ -195,7 +195,7 @@ struct CaptureView: View {
             Eyebrow(text: model.fromSelection ? "What you selected" : "The term")
             if model.fromSelection {
                 Text("“\(model.text)”")
-                    .font(.system(size: 14))
+                    .font(.system(.title3))
                     .lineLimit(4)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -212,8 +212,8 @@ struct CaptureView: View {
         if let app = model.seenIn {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Remember it came from \(app)").font(.system(size: 13, weight: .semibold))
-                    Text("The app's name. Never the contents.").font(.system(size: 11)).foregroundStyle(Color.inkFaint)
+                    Text("Remember it came from \(app)").font(.system(.body, weight: .semibold))
+                    Text("The app's name. Never the contents.").font(.system(.subheadline)).foregroundStyle(Color.inkFaint)
                 }
                 Spacer()
                 Toggle("", isOn: $model.rememberSource).toggleStyle(.switch).tint(Color.watching).labelsHidden()
@@ -235,7 +235,7 @@ struct CaptureView: View {
         Text(model.fromSelection
              ? "unrot receives the selection and nothing else — not the page, not the document."
              : "Tip: select text in any app, then right-click › Services › Add to unrot.")
-            .font(.system(size: 11))
+            .font(.system(.subheadline))
             .foregroundStyle(Color.inkFaint)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -243,7 +243,7 @@ struct CaptureView: View {
     private func field<F: View>(_ content: F) -> some View {
         content
             .textFieldStyle(.plain)
-            .font(.system(size: 13.5))
+            .font(.system(.body))
             .padding(10)
             .background(Color.card, in: RoundedRectangle(cornerRadius: 7))
             .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.ruleStrong, lineWidth: 1))
@@ -258,10 +258,10 @@ private struct Verdict: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(tint)
+            Text(title).font(.system(.body, weight: .semibold)).foregroundStyle(tint)
             // Markdown, so the concept name can be bold as the canvas has it.
             Text(LocalizedStringKey(text))
-                .font(.system(size: 12.5))
+                .font(.system(.callout))
                 .foregroundStyle(Color.inkPrimary)
                 .fixedSize(horizontal: false, vertical: true)
         }

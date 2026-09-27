@@ -59,7 +59,7 @@ struct Field: ViewModifier {
     func body(content: Content) -> some View {
         content
             .textFieldStyle(.plain)
-            .font(.system(size: 13, design: mono ? .monospaced : .default))
+            .font(.system(.body, design: mono ? .monospaced : .default))
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .background(Color.card, in: RoundedRectangle(cornerRadius: 6))
@@ -75,7 +75,7 @@ private struct Caption: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 11.5))
+            .font(.system(.subheadline))
             .foregroundStyle(Color.inkFaint)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -93,7 +93,7 @@ struct CapturePane: View {
         Form {
             Section {
                 LabeledContent("Transcript folder") {
-                    Text("~/.claude/projects").font(.system(size: 12.5, design: .monospaced))
+                    Text("~/.claude/projects").font(.system(.callout, design: .monospaced))
                 }
             } footer: {
                 Caption("Read-only, always. unrot lists and reads these files; nothing in it ever writes to ~/.claude.")
@@ -126,7 +126,7 @@ struct CapturePane: View {
             } header: {
                 Text("Analysis")
             } footer: {
-                Caption("Analysis sends a session's windows to your model and costs what that costs. Off, captured sessions wait for Analyse Now. On, it applies only to sessions that finish after you switch it on — anything already waiting still waits for you.")
+                Caption("Analysis sends a session's windows to your model and costs what that costs. Off, captured sessions wait for Analyse now. On, it applies only to sessions that finish after you switch it on — anything already waiting still waits for you.")
             }
 
             Section {
@@ -144,7 +144,7 @@ struct CapturePane: View {
                 LabeledContent("From any app") {
                     HStack(spacing: 10) {
                         Text("Services › Add to unrot")
-                        Button("Set a Shortcut…") {
+                        Button("Set a shortcut…") {
                             if let url = URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension") {
                                 NSWorkspace.shared.open(url)
                             }
@@ -205,7 +205,7 @@ private struct QueueRow: View {
                         Button("Stop") { watcher.stopAnalysing() }
                     } else {
                         Button(watcher.paused ? "Resume" : "Pause") { watcher.paused.toggle() }
-                        Button("Analyse Now") { watcher.analyseNow() }
+                        Button("Analyse now") { watcher.analyseNow() }
                             .disabled(!watcher.canAnalyse || watcher.pendingCount == 0)
                     }
                 }
@@ -215,7 +215,7 @@ private struct QueueRow: View {
             }
             if let pending = watcher.queue?.pending, !pending.isEmpty {
                 Text(pending.prefix(3).map { "\($0.repo ?? $0.sessionId.prefix(8).description) · \($0.humanTurns) turns" }.joined(separator: "   "))
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(.subheadline, design: .monospaced))
                     .foregroundStyle(Color.inkFaint)
                     .lineLimit(1)
             }
@@ -264,12 +264,12 @@ struct ModelPane: View {
                     if settings.endpoint == .local {
                         LabeledContent("Server") {
                             TextField("Server", text: $settings.localURL, prompt: Text("http://localhost:11434/v1"))
-                                .labelsHidden().font(.system(size: 12.5, design: .monospaced))
+                                .labelsHidden().font(.system(.callout, design: .monospaced))
                         }
                     } else if settings.endpoint == .custom {
                         LabeledContent("Endpoint") {
                             TextField("Endpoint", text: $settings.customURL, prompt: Text("https://…/v1"))
-                                .labelsHidden().font(.system(size: 12.5, design: .monospaced))
+                                .labelsHidden().font(.system(.callout, design: .monospaced))
                         }
                     }
                 } footer: {
@@ -291,7 +291,7 @@ struct ModelPane: View {
                     // The value is an identifier, so it is set in mono; the label is not.
                     LabeledContent("Model") {
                         TextField("Model", text: $settings.model, prompt: Text(inEffect.map { "default: \($0.model)" } ?? "the core's default"))
-                            .labelsHidden().font(.system(size: 12.5, design: .monospaced))
+                            .labelsHidden().font(.system(.callout, design: .monospaced))
                     }
                     if settings.endpoint != .local {
                         Picker("Reasoning effort", selection: $settings.effort) {
@@ -319,7 +319,7 @@ struct ModelPane: View {
                             HStack(spacing: 8) {
                                 SecureField("API key", text: $key, prompt: Text(settings.hasKey ? "A key is stored — paste to replace it" : "Paste your OpenRouter key"))
                                     .labelsHidden()
-                                    .font(.system(size: 12.5, design: .monospaced))
+                                    .font(.system(.callout, design: .monospaced))
                                 Button("Save") { settings.saveKey(key); key = "" }
                                     .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty)
                                 if settings.hasKey {
@@ -408,11 +408,11 @@ private struct RestartBar: View {
     var body: some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Changes apply when the core restarts.").font(.system(size: 13, weight: .semibold))
+                Text("Changes apply when the core restarts.").font(.system(.body, weight: .semibold))
                 Caption("The core reads its model settings when it starts.")
             }
             Spacer()
-            Button("Restart the Core", action: restart)
+            Button("Restart the core", action: restart)
                 .buttonStyle(UnrotButton(weight: .primary))
                 .keyboardShortcut(.defaultAction)
         }
@@ -431,14 +431,14 @@ struct RegeneratePane: View {
         Form {
             Section {
                 Text("Re-run the detector over everything captured, under the model and prompt in effect now. Worth doing after either changes.")
-                    .font(.system(size: 12))
+                    .font(.system(.callout))
                     .fixedSize(horizontal: false, vertical: true)
                 if let plan = regenerator.plan {
                     LabeledContent("Sessions captured", value: "\(plan.captured)")
                     LabeledContent("Already at this version", value: "\(plan.alreadyDone)")
                     LabeledContent("Would be re-examined", value: "\(plan.toRun.count)")
                     Text(plan.detectorVersion)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(Color.inkFaint)
                         .textSelection(.enabled)
                 } else if let error = regenerator.lastError {
@@ -453,7 +453,7 @@ struct RegeneratePane: View {
                 } icon: {
                     Image(systemName: "lock")
                 }
-                .font(.system(size: 12))
+                .font(.system(.callout))
             }
 
             Section {
@@ -468,15 +468,15 @@ struct RegeneratePane: View {
                         .disabled(n == 0 || regenerator.plan?.canRun != true)
                     if regenerator.plan?.canRun == false {
                         Text("No model is configured, so nothing can be re-examined.")
-                            .font(.system(size: 11)).foregroundStyle(Color.inkFaint)
+                            .font(.system(.subheadline)).foregroundStyle(Color.inkFaint)
                     }
                 }
                 if let error = regenerator.lastError, regenerator.plan != nil {
-                    Text(error).font(.system(size: 11)).foregroundStyle(Color.inkSoft)
+                    Text(error).font(.system(.subheadline)).foregroundStyle(Color.inkSoft)
                 }
                 if regenerator.totals.removed + regenerator.totals.recorded > 0 {
                     Text("Last run: \(regenerator.totals.recorded) recorded, \(regenerator.totals.removed) stale flags removed, \(regenerator.totals.protected) judged encounters left alone.")
-                        .font(.system(size: 11)).foregroundStyle(Color.inkFaint)
+                        .font(.system(.subheadline)).foregroundStyle(Color.inkFaint)
                 }
             }
 
@@ -528,13 +528,13 @@ struct DeveloperPane: View {
             WipeAndRerunSection(client: client, regenerator: regenerator)
             Section {
                 Text("Export for analysis writes the log and every decision the models made, with your verdicts, as JSONL files in one .zip — for an agent or a notebook to judge the models with. It is saved on this Mac, where you choose. Nothing is uploaded.")
-                    .font(.system(size: 12))
+                    .font(.system(.callout))
                     .fixedSize(horizontal: false, vertical: true)
                 Toggle("Include text", isOn: $includeText)
                 Text(includeText
                      ? "Your explanations, the questions they answered, the grader's comments, material text and excerpts go in. Read it before you share it."
                      : "Off: what you wrote, and excerpts from your code and sessions, are left out.")
-                    .font(.system(size: 11))
+                    .font(.system(.subheadline))
                     .foregroundStyle(includeText ? Color.inkSoft : Color.inkFaint)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -542,23 +542,23 @@ struct DeveloperPane: View {
             if let preview {
                 Section("What goes in") {
                     ForEach(preview.included, id: \.self) { line in
-                        Label(line, systemImage: "checkmark").font(.system(size: 12))
+                        Label(line, systemImage: "checkmark").font(.system(.callout))
                     }
                     ForEach(preview.files, id: \.name) { file in
                         LabeledContent(file.name, value: "\(file.rows) row\(file.rows == 1 ? "" : "s")")
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(.system(.callout, design: .monospaced))
                     }
                     if preview.fixtureEvents > 0 {
                         Text("\(preview.fixtureEvents) development fixture event\(preview.fixtureEvents == 1 ? "" : "s") included, each marked fixture: true.")
-                            .font(.system(size: 11)).foregroundStyle(Color.inkFaint)
+                            .font(.system(.subheadline)).foregroundStyle(Color.inkFaint)
                     }
                 }
                 Section("What stays out") {
                     ForEach(preview.withheld, id: \.self) { line in
-                        Label(line, systemImage: "minus.circle").font(.system(size: 12))
+                        Label(line, systemImage: "minus.circle").font(.system(.callout))
                     }
                     ForEach(preview.never, id: \.self) { line in
-                        Label(line, systemImage: "lock").font(.system(size: 12))
+                        Label(line, systemImage: "lock").font(.system(.callout))
                     }
                 }
             } else if let problem {
@@ -575,10 +575,10 @@ struct DeveloperPane: View {
                 }
                 if let saved {
                     Text("Saved \(saved.lastPathComponent)")
-                        .font(.system(size: 11)).foregroundStyle(Color.inkFaint)
+                        .font(.system(.subheadline)).foregroundStyle(Color.inkFaint)
                 }
                 if let problem, preview != nil {
-                    Text(problem).font(.system(size: 11)).foregroundStyle(Color.inkSoft)
+                    Text(problem).font(.system(.subheadline)).foregroundStyle(Color.inkSoft)
                 }
             }
         }
@@ -660,7 +660,7 @@ struct NotificationsPane: View {
                         """)
                     Text("With the check switched on, a single gap asks its question and takes a one- or two-line answer. It is never the only way to answer it.")
                 }
-                .font(.system(size: 11))
+                .font(.system(.subheadline))
                 .foregroundStyle(Color.inkFaint)
             }
         }
@@ -699,7 +699,7 @@ private struct OpenAtLogin: View {
             }
         ))
         if let problem {
-            Text(problem).font(.system(size: 11)).foregroundStyle(Color.inkSoft)
+            Text(problem).font(.system(.subheadline)).foregroundStyle(Color.inkSoft)
         }
     }
 }
@@ -725,22 +725,22 @@ private struct SpendCard: View {
                     Eyebrow(text: "Per examined session", tint: .inkSoft)
                     ForEach(spend.perSession) { row in
                         HStack(spacing: 10) {
-                            Text(row.model).font(.system(size: 12, design: .monospaced))
+                            Text(row.model).font(.system(.callout, design: .monospaced))
                             if row.model == spend.model {
                                 Pip(text: "current", tint: .bucketClosed, wash: .bucketClosedBG)
                             }
                             Spacer()
-                            Text(row.text).font(.system(size: 12.5, weight: .semibold)).monospacedDigit()
+                            Text(row.text).font(.system(.callout, weight: .semibold)).monospacedDigit()
                             Text("over \(row.sessions) session\(row.sessions == 1 ? "" : "s")")
-                                .font(.system(size: 11.5)).foregroundStyle(Color.inkFaint)
+                                .font(.system(.subheadline)).foregroundStyle(Color.inkFaint)
                         }
                     }
                 }
                 Text(footnote(spend))
-                    .font(.system(size: 11.5)).foregroundStyle(Color.inkFaint)
+                    .font(.system(.subheadline)).foregroundStyle(Color.inkFaint)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                Text("The core isn't answering.").font(.system(size: 12)).foregroundStyle(Color.inkFaint)
+                Text("The core isn't answering.").font(.system(.callout)).foregroundStyle(Color.inkFaint)
             }
         }
         .padding(.vertical, 4)
@@ -749,16 +749,16 @@ private struct SpendCard: View {
 
     private func column(_ title: String, total: SpendTotal, parts: [SpendPart]) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.system(size: 11.5)).foregroundStyle(Color.inkSoft)
-            Text(total.text).font(.system(size: 20, weight: .semibold)).monospacedDigit()
+            Text(title).font(.system(.subheadline)).foregroundStyle(Color.inkSoft)
+            Text(total.text).font(.system(.title, weight: .semibold)).monospacedDigit()
             Text("\(total.calls) call\(total.calls == 1 ? "" : "s")"
                  + (total.failed > 0 ? ", \(total.failed) failed" : ""))
-                .font(.system(size: 11.5)).foregroundStyle(Color.inkFaint)
+                .font(.system(.subheadline)).foregroundStyle(Color.inkFaint)
             ForEach(parts) { part in
                 HStack {
-                    Text(part.label).font(.system(size: 12))
+                    Text(part.label).font(.system(.callout))
                     Spacer(minLength: 12)
-                    Text(part.total.text).font(.system(size: 12)).monospacedDigit()
+                    Text(part.total.text).font(.system(.callout)).monospacedDigit()
                 }
             }
         }

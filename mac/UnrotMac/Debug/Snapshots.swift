@@ -301,13 +301,13 @@ private struct GlyphSheet: View {
                         Image(nsImage: TrayGlyph.image(for: state))
                             .renderingMode(.template)
                         if count > 0 {
-                            Text("\(count)").font(.system(size: 12, weight: .medium).monospacedDigit())
+                            Text("\(count)").font(.system(.callout, weight: .medium).monospacedDigit())
                         }
                     }
                     .padding(.horizontal, 8)
                     .frame(height: 24)
                     .background(.bar, in: RoundedRectangle(cornerRadius: 5))
-                    Text(label).font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text(label).font(.system(.caption)).foregroundStyle(.secondary)
                 }
             }
         }

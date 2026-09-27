@@ -28,7 +28,7 @@ struct GapCardView: View {
 
             if let paraphrase = concept.lead?.paraphrase {
                 Text(paraphrase)
-                    .font(.system(size: 13.5))
+                    .font(.system(.body))
                     .foregroundStyle(Color.inkSoft)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -38,14 +38,14 @@ struct GapCardView: View {
                 // Said plainly, because the answer means something different
                 // here: "I knew it" is triage having been right, not a bad flag.
                 Text("unrot thought you already knew this and would have left it off your list. Did you?")
-                    .font(.system(size: 12))
+                    .font(.system(.callout))
                     .foregroundStyle(Color.inkFaint)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if let provenance = concept.lead?.provenance {
                 Text(provenance)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(.subheadline, design: .monospaced))
                     .foregroundStyle(Color.inkFaint)
             }
 
@@ -94,7 +94,7 @@ struct GapCardView: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(concept.name)
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(.title2, weight: .semibold))
                 .foregroundStyle(Color.inkPrimary)
                 .textSelection(.enabled)
             if concept.typedIn {
@@ -107,7 +107,7 @@ struct GapCardView: View {
             }
             Spacer()
             Text(corner)
-                .font(.system(size: 11.5))
+                .font(.system(.subheadline))
                 .foregroundStyle(Color.inkFaint)
         }
     }
@@ -133,7 +133,8 @@ struct GapCardView: View {
                 }
                 .buttonStyle(UnrotButton())
             } else if concept.bucket != .closed {
-                Button("Explain it") { router.check = .init(conceptId: concept.conceptId) }
+                // An ellipsis: it opens the check, which asks for more.
+                Button("Explain it…") { router.check = .init(conceptId: concept.conceptId) }
                     .buttonStyle(UnrotButton(weight: concept.bucket == .learning ? .primary : .secondary))
                 MaterialMenu(concept: concept, store: store)
             }
@@ -143,7 +144,7 @@ struct GapCardView: View {
             }
             Spacer()
             if let encounter = concept.lead, encounter.sessionId != nil {
-                Button("Show the moment →") {
+                Button("Show the moment…") {
                     router.moment = .init(conceptId: concept.conceptId, encounterId: encounter.encounterId)
                 }
                 .buttonStyle(LinkButton())
@@ -188,10 +189,10 @@ struct RefusalNote: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if let title {
-                Text(title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(tint)
+                Text(title).font(.system(.callout, weight: .semibold)).foregroundStyle(tint)
             }
             Text(text)
-                .font(.system(size: 12.5))
+                .font(.system(.callout))
                 .foregroundStyle(Color.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
         }

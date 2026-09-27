@@ -3,7 +3,7 @@
 //
 //  Which list the window is on, which card has its focus, and which sheet it is
 //  showing. Shared rather than held in a view, so the menu bar, a notification
-//  and the popover's "Show the moment in the window" can ask the window for any
+//  and the popover's "Show the moment…" can ask the window for any
 //  of them.
 
 import Foundation

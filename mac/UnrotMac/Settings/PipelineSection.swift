@@ -32,7 +32,7 @@ struct PipelineSection: View {
                 LabeledContent("Flags that were real", value: ratio(report.flagPrecision))
                 LabeledContent("Hold-backs that were right", value: ratio(report.holdBackPrecision))
             } else if let problem {
-                Text(problem).font(.system(size: 11)).foregroundStyle(Color.inkSoft)
+                Text(problem).font(.system(.subheadline)).foregroundStyle(Color.inkSoft)
             } else {
                 ProgressView().controlSize(.small)
             }
@@ -46,7 +46,7 @@ struct PipelineSection: View {
             }
         } footer: {
             Text("Hold-backs that were right comes only from spot checks: triage surfaces one in five of the terms it would have hidden, and asks. Under 90% over 10 answered, it stops holding anything back.")
-                .font(.system(size: 11))
+                .font(.system(.subheadline))
                 .foregroundStyle(Color.inkFaint)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -61,7 +61,7 @@ struct PipelineSection: View {
                 Text("Dismissed, by triage's p(knows)")
             } footer: {
                 Text("Among terms triage let through and you then answered. Should climb down the list; if it does not, the probability is noise.")
-                    .font(.system(size: 11))
+                    .font(.system(.subheadline))
                     .foregroundStyle(Color.inkFaint)
             }
 

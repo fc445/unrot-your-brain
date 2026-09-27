@@ -38,7 +38,7 @@ struct UnrotButton: ButtonStyle {
 
         private var label: some View {
         configuration.label
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(.body, weight: .semibold))
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(maxWidth: fill ? .infinity : nil)
@@ -72,7 +72,7 @@ struct LinkButton: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(.body, weight: .semibold))
                 .foregroundStyle(Color.inkPrimary)
                 .underline(hovering)
                 .opacity(configuration.isPressed ? 0.6 : 1)
@@ -89,7 +89,7 @@ struct Pip: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 10.5, weight: .semibold))
+            .font(.system(.caption, weight: .semibold))
             .foregroundStyle(tint)
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
@@ -104,7 +104,7 @@ struct Eyebrow: View {
 
     var body: some View {
         Text(text.uppercased())
-            .font(.system(size: 10.5, weight: .semibold))
+            .font(.system(.caption, weight: .semibold))
             .tracking(0.6)
             .foregroundStyle(tint)
     }
@@ -116,7 +116,7 @@ struct Keycap: View {
 
     var body: some View {
         Text(key)
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .font(.system(.caption, design: .monospaced, weight: .semibold))
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .foregroundStyle(inverted ? Color.paper.opacity(0.85) : Color.inkSoft)
@@ -144,7 +144,7 @@ struct StatusPill: View {
             Circle().fill(tint).frame(width: 7, height: 7)
             Text(label)
         }
-        .font(.system(size: 12, weight: .semibold))
+        .font(.system(.callout, weight: .semibold))
         .foregroundStyle(tint)
         .padding(.horizontal, bare ? 4 : 10)
         .padding(.vertical, 4)

@@ -86,7 +86,8 @@ struct RootView: View {
             undoManager?.registerUndo(withTarget: quick) { target in
                 Task { @MainActor in await target.undo() }
             }
-            undoManager?.setActionName(answer.verdict == .confirm ? "“Didn't Know This”" : "“Knew It”")
+            // The Gap menu's words, so Edit › Undo names what was chosen there.
+            undoManager?.setActionName(answer.verdict == .confirm ? "“I Didn't Know This”" : "“I Knew It”")
         }
         .sheet(item: $router.moment) { request in
             MomentSheet(request: request, store: store, quick: quick) { router.moment = nil }
@@ -145,7 +146,7 @@ struct RootView: View {
                     contents.padding(.top, 22)
                 } else if !store.hasLoadedOnce {
                     Text(core.status.isUp ? "Reading the log…" : "Starting the core…")
-                        .font(.system(size: 13))
+                        .font(.system(.body))
                         .foregroundStyle(Color.inkFaint)
                         .padding(.top, 40)
                 }
@@ -195,7 +196,7 @@ struct RootView: View {
             .font(.display(32))
             .foregroundStyle(Color.inkPrimary)
         Text(list.bucket == .open ? surface.detail : list.note + ".")
-            .font(.system(size: 13.5))
+            .font(.system(.body))
             .foregroundStyle(Color.inkSoft)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 4)
@@ -328,7 +329,7 @@ private struct ClosedChips: View {
         FlowLayout(spacing: 8) {
             ForEach(concepts) { concept in
                 Text(concept.name)
-                    .font(.system(size: 12.5, weight: .medium))
+                    .font(.system(.callout, weight: .medium))
                     .foregroundStyle(Color.bucketClosed)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 5)
@@ -404,7 +405,7 @@ private struct QueueBar: View {
                     Button("Analyse now") { watcher.analyseNow() }.buttonStyle(UnrotButton(weight: .primary))
                 }
             }
-            .font(.system(size: 12.5))
+            .font(.system(.callout))
             .padding(10)
             .background(Color.sunk, in: RoundedRectangle(cornerRadius: 8))
         }
@@ -455,7 +456,7 @@ private struct ReexamineBanner: View {
                 title: "The detector changed. Re-examine your history?",
                 text: "\(previously) session\(previously == 1 ? " was" : "s were") analysed by an older detector. \(plan.protected) of your judgments are protected and replayed untouched."
             ) {
-                Button("Show the Plan") {
+                Button("Show the plan") {
                     UserDefaults.standard.set(SettingsView.Tab.advanced.rawValue, forKey: SettingsView.tabKey)
                     openSettings()
                 }
@@ -483,8 +484,8 @@ private struct ReexamineBanner: View {
         HStack(spacing: 12) {
             Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(Color.bucketLearning)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Color.bucketLearning)
-                Text(text).font(.system(size: 12)).foregroundStyle(Color.inkSoft)
+                Text(title).font(.system(.callout, weight: .semibold)).foregroundStyle(Color.bucketLearning)
+                Text(text).font(.system(.callout)).foregroundStyle(Color.inkSoft)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
@@ -503,7 +504,7 @@ private struct FixturesNotice: View {
         HStack(alignment: .top, spacing: 8) {
             Pip(text: "fixtures", tint: .inkFaint, wash: .rule)
             Text("\(count) of these events are development fixtures. Remove them with `python -m unrot.store seed --clear`.")
-                .font(.system(size: 12))
+                .font(.system(.callout))
                 .foregroundStyle(Color.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
         }

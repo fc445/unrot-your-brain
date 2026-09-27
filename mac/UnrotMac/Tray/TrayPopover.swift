@@ -25,7 +25,7 @@ struct TrayPopover: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text(title).font(.system(size: 14, weight: .semibold))
+                    Text(title).font(.system(.title3, weight: .semibold))
                     Spacer()
                     StatusPill(watcher: watcher, core: core)
                 }
@@ -40,9 +40,9 @@ struct TrayPopover: View {
                 Divider()
                 HStack(spacing: 8) {
                     Circle().fill(Color.bucketOpen).frame(width: 7, height: 7).accessibilityHidden(true)
-                    Text(next.name).font(.system(size: 13))
+                    Text(next.name).font(.system(.body))
                     Spacer()
-                    Text("next").font(.system(size: 11.5)).foregroundStyle(Color.inkFaint)
+                    Text("next").font(.system(.subheadline)).foregroundStyle(Color.inkFaint)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
@@ -67,19 +67,19 @@ struct TrayPopover: View {
                     Spacer()
                     Text(spent.value).monospacedDigit()
                 }
-                .font(.system(size: 11.5))
+                .font(.system(.subheadline))
                 .foregroundStyle(Color.inkSoft)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
             }
 
             HStack(spacing: 6) {
-                Image(systemName: "lock").font(.system(size: 10))
+                Image(systemName: "lock").font(.system(.caption))
                 Text(watcher.autoAnalyse
                      ? "Finished sessions are sent to your model for analysis."
                      : "Nothing is sent anywhere until you ask.")
             }
-            .font(.system(size: 11))
+            .font(.system(.subheadline))
             .foregroundStyle(Color.inkFaint)
             .padding(.horizontal, 16)
             .padding(.vertical, 9)
@@ -121,26 +121,26 @@ struct TrayPopover: View {
             // server cannot send.
             VStack(alignment: .leading, spacing: 8) {
                 Text("unrot-core isn't running")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(.body, weight: .semibold))
                     .foregroundStyle(Color.alarm)
                 Text("This is not an empty list — it is an unanswered question.")
-                    .font(.system(size: 12.5))
+                    .font(.system(.callout))
                     .foregroundStyle(Color.inkSoft)
                 Button("Restart the core") { core.restart() }.buttonStyle(UnrotButton())
             }
         } else if let (concept, encounter) = store.nextWaiting {
             VStack(alignment: .leading, spacing: 8) {
-                Text(concept.name).font(.system(size: 17, weight: .semibold))
+                Text(concept.name).font(.system(.title2, weight: .semibold))
                 if let paraphrase = encounter.paraphrase {
                     Text(paraphrase)
-                        .font(.system(size: 12.5))
+                        .font(.system(.callout))
                         .foregroundStyle(Color.inkSoft)
                         .lineLimit(4)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let provenance = encounter.provenance {
                     Text(provenance)
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(Color.inkFaint)
                 }
                 QuickKeys(busy: store.busy.contains(encounter.encounterId), showKeys: false) { verdict in
@@ -148,7 +148,7 @@ struct TrayPopover: View {
                 }
                 .padding(.top, 4)
                 if encounter.sessionId != nil {
-                    Button("Show the moment in the window") {
+                    Button("Show the moment…") {
                         router.moment = .init(conceptId: concept.conceptId, encounterId: encounter.encounterId)
                         openMain()
                     }
@@ -157,14 +157,14 @@ struct TrayPopover: View {
             }
         } else if let surface = store.surface {
             Text(surface.detail)
-                .font(.system(size: 12.5))
+                .font(.system(.callout))
                 .foregroundStyle(Color.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
             // Not loaded yet. The core may simply be starting, which is not a
             // failure and must not be drawn as one.
             Text(core.status.isUp ? "Reading the log…" : "Starting the core…")
-                .font(.system(size: 12.5))
+                .font(.system(.callout))
                 .foregroundStyle(Color.inkFaint)
         }
     }
@@ -209,10 +209,10 @@ struct UndoStrip: View {
             Image(systemName: "checkmark").foregroundStyle(Color.bucketLearning)
             VStack(alignment: .leading, spacing: 1) {
                 Text(answer.sentence)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(.callout, weight: .semibold))
                     .foregroundStyle(Color.bucketLearning)
                 Text("Edit › Undo takes it back until your next answer.")
-                    .font(.system(size: 11))
+                    .font(.system(.subheadline))
                     .foregroundStyle(Color.inkSoft)
             }
             Spacer(minLength: 6)
