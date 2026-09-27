@@ -50,6 +50,12 @@ struct UnrotMacApp: App {
                 }
                 Divider()
             }
+            // After View, before Window, as app-specific menus go.
+            CommandMenu("Gap") {
+                GapMenu(store: delegate.store, quick: delegate.quick, router: delegate.router) {
+                    delegate.showMain()
+                }
+            }
             CommandGroup(after: .toolbar) {
                 Button("Reload") { Task { await delegate.store.load() } }
                     .keyboardShortcut("r")
@@ -192,6 +198,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(for: .seconds(15))
         }
     }
+
+    /// Right-clicking the Dock icon. The menu-bar item can be hidden or crowded
+    /// out; the Dock menu is there whenever the app is running.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Triage", action: #selector(dockTriage), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Add a Gap…", action: #selector(dockAddGap), keyEquivalent: "").target = self
+        menu.addItem(.separator())
+        menu.addItem(
+            withTitle: watcher.paused ? "Resume Watching" : "Pause Watching",
+            action: #selector(dockTogglePaused),
+            keyEquivalent: ""
+        ).target = self
+        return menu
+    }
+
+    @objc private func dockTriage() { showTriage() }
+    @objc private func dockAddGap() { addGap() }
+    @objc private func dockTogglePaused() { watcher.paused.toggle() }
 
     /// Clicking the Dock icon with no window open brings the window back.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {

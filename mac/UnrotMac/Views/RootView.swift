@@ -25,20 +25,19 @@ struct RootView: View {
     var onboarding: Onboarding? = nil
     var modelSettings: ModelSettings? = nil
 
-    /// The card K and D answer. Arrow keys move it; it defaults to the top.
-    @State private var focused: String?
     /// Whether the page, rather than the sidebar, has the keyboard. K and D
     /// only mean something to the page, so it starts with it.
     @FocusState private var pageHasKeyboard: Bool
     @Environment(\.undoManager) private var undoManager
 
-    private var waiting: [Concept] { store.concepts(in: .open) }
+    /// The cards the arrows move through: the list on screen's.
+    private var cards: [Concept] { list.bucket == .closed ? [] : store.concepts(in: list.bucket) }
     /// The watcher does not start until the first run is finished, so the bar must not
     /// claim it is watching while the user is still being asked whether it may.
     private var settingUp: Bool { onboarding.map { !$0.done } ?? false }
-    private var focusedConcept: Concept? {
-        waiting.first { $0.conceptId == focused } ?? waiting.first
-    }
+    /// The card K and D answer and the Gap menu acts on. The arrows move it;
+    /// it defaults to the top.
+    private var focusedConcept: Concept? { router.focusedConcept(in: store) }
     private var list: BucketSection {
         BucketSection.all.first { $0.bucket == router.list } ?? BucketSection.all[0]
     }
@@ -107,9 +106,9 @@ struct RootView: View {
     }
 
     private func move(_ step: Int) {
-        guard !waiting.isEmpty else { return }
-        let index = waiting.firstIndex { $0.conceptId == focusedConcept?.conceptId } ?? 0
-        focused = waiting[max(0, min(waiting.count - 1, index + step))].conceptId
+        guard !cards.isEmpty else { return }
+        let index = cards.firstIndex { $0.conceptId == focusedConcept?.conceptId } ?? 0
+        router.focusedGap = cards[max(0, min(cards.count - 1, index + step))].conceptId
     }
 
     // MARK: - The page
@@ -159,20 +158,20 @@ struct RootView: View {
         }
         // K and D answer the focused card; the arrows move focus. Handled here
         // rather than as keyboard shortcuts, because a shortcut on a bare
-        // letter fires even while a text editor has focus. Only Waiting on you
-        // has cards to answer, so everywhere else the keys fall through.
+        // letter fires even while a text editor has focus. Only a waiting card
+        // has a question to answer, so everywhere else K and D fall through.
         .focusable()
         .focusEffectDisabled()
         .focused($pageHasKeyboard)
         .onAppear { pageHasKeyboard = true }
         .onKeyPress(keys: [.upArrow, .downArrow]) { press in
-            guard list.bucket == .open else { return .ignored }
+            guard !cards.isEmpty else { return .ignored }
             move(press.key == .upArrow ? -1 : 1)
             return .handled
         }
         .onKeyPress(characters: CharacterSet(charactersIn: "dDkK"), phases: .down) { press in
-            guard list.bucket == .open,
-                  let concept = focusedConcept, let encounter = concept.unanswered else { return .ignored }
+            guard let concept = focusedConcept, concept.bucket == .open,
+                  let encounter = concept.unanswered else { return .ignored }
             let verdict: Verdict = press.characters.lowercased() == "d" ? .confirm : .dismiss
             Task { await quick.answer(concept: concept, encounter: encounter, verdict) }
             return .handled
@@ -212,12 +211,14 @@ struct RootView: View {
                         store: store,
                         quick: quick,
                         router: router,
-                        isFocused: list.bucket == .open && concept.conceptId == focusedConcept?.conceptId
+                        isFocused: concept.conceptId == focusedConcept?.conceptId
                     )
                     .onTapGesture {
-                        guard list.bucket == .open else { return }
-                        focused = concept.conceptId
+                        router.focusedGap = concept.conceptId
                         pageHasKeyboard = true
+                    }
+                    .contextMenu {
+                        GapContextMenu(actions: GapActions(concept: concept, quick: quick, router: router))
                     }
                 }
             }
