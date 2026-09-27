@@ -2,11 +2,13 @@
 //  UnrotMac
 //
 //  After the MenuBar artboard: what a left click on the ring shows. The top
-//  gap and its two answers, what is next, the handful of things worth doing
-//  from the menu bar, and a line saying what is sent where.
+//  gap and its two answers, what is next, the way to the window and to
+//  Settings, and a line saying what is sent where.
 //
 //  It answers one gap at a time and never shows a list. The list is the
-//  window's job; this is for "one thing, while I'm here".
+//  window's job; this is for "one thing, while I'm here". Commands -- pause,
+//  analyse, add a gap, quit -- are the right-click menu's, a real menu, rather
+//  than rows here drawn to look like one.
 
 import SwiftUI
 import UnrotKit
@@ -47,15 +49,17 @@ struct TrayPopover: View {
             }
 
             Divider()
-            VStack(spacing: 0) {
-                MenuRow(title: "Open unrot", shortcut: "⌘0", action: openMain)
-                MenuRow(title: watcher.paused ? "Resume watching" : "Pause watching") { watcher.paused.toggle() }
-                SettingsLink {
-                    MenuRowLabel(title: "Settings…", shortcut: "⌘,")
-                }
-                .buttonStyle(.plain)
+            // Settings stays here rather than in the right-click menu: an
+            // AppKit menu item cannot open a SwiftUI Settings scene, and
+            // SettingsLink is the one thing that can.
+            HStack(spacing: 18) {
+                Button("Open unrot", action: openMain)
+                SettingsLink { Text("Settings…") }
+                Spacer()
             }
-            .padding(.vertical, 6)
+            .buttonStyle(LinkButton())
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
 
             if let spent {
                 HStack {
@@ -163,36 +167,6 @@ struct TrayPopover: View {
                 .font(.system(size: 12.5))
                 .foregroundStyle(Color.inkFaint)
         }
-    }
-}
-
-private struct MenuRow: View {
-    let title: String
-    var shortcut: String? = nil
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) { MenuRowLabel(title: title, shortcut: shortcut) }
-            .buttonStyle(.plain)
-    }
-}
-
-private struct MenuRowLabel: View {
-    let title: String
-    var shortcut: String? = nil
-
-    var body: some View {
-        HStack {
-            Text(title).font(.system(size: 13))
-            Spacer()
-            if let shortcut {
-                Text(shortcut).font(.system(size: 12)).foregroundStyle(Color.inkFaint)
-            }
-        }
-        .foregroundStyle(Color.inkPrimary)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
     }
 }
 
