@@ -35,6 +35,16 @@ struct UnrotMacApp: App {
                 Button("Add a Gap…") { delegate.addGap() }
                     .keyboardShortcut("n")
             }
+            SidebarCommands()
+            // The sidebar's three lists, as Mail numbers its mailboxes: the
+            // menu bar is where people look for what an app can do.
+            CommandGroup(before: .sidebar) {
+                ForEach(Array(BucketSection.all.enumerated()), id: \.element.id) { index, section in
+                    Button(section.menuTitle) { delegate.showList(section.bucket) }
+                        .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")))
+                }
+                Divider()
+            }
             CommandGroup(after: .toolbar) {
                 Button("Reload") { Task { await delegate.store.load() } }
                     .keyboardShortcut("r")
@@ -76,7 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var notifier = Notifier(
         store: store,
         quick: quick,
-        openMain: { [weak self] in self?.showMain() },
+        // A notification is about something waiting on you, so that is the list it opens.
+        openMain: { [weak self] in self?.showList(.open) },
         openTriage: { [weak self] in self?.showTriage() }
     )
     private lazy var triage = TriagePanel(store: store, quick: quick)
@@ -87,6 +98,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var triageKey: HotKey?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // One window: no tab bar to show, so no Show Tab Bar in the View menu.
+        NSWindow.allowsAutomaticWindowTabbing = false
         #if DEBUG
         if Snapshots.requested {
             Task { await Snapshots.run() }
@@ -152,6 +165,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func showMain() { main.show() }
+
+    func showList(_ bucket: Bucket) {
+        router.list = bucket
+        main.show()
+    }
 
     func showTriage() { triage.show() }
 

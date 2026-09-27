@@ -14,7 +14,11 @@
 //  its menu-bar item in this mode, and exits when done.
 //
 //  Drawing is in-process -- an offscreen window and `cacheDisplay` -- which is
-//  why no screen permission is involved: nothing reads the screen.
+//  why no screen permission is involved: nothing reads the screen. The cost is
+//  that system materials (the sidebar, a selected row's highlight) do not
+//  draw. To see those, `UNROT_SNAPSHOT_HOLD=<seconds>` instead opens the real
+//  main window over the `full` home -- behind everything, without taking
+//  focus -- holds it for a window-capturing tool, and exits.
 
 #if DEBUG
 import AppKit
@@ -36,9 +40,20 @@ enum Snapshots {
         }
         homes.append(("failed", "/tmp/unrot-no-core-here.sock"))
 
+        if let hold = env["UNROT_SNAPSHOT_HOLD"].flatMap(Double.init),
+           let (_, socket) = homes.first(where: { $0.0 == "full" }) {
+            let kit = await Kit(socket: socket, up: true)
+            let main = MainWindow {
+                AnyView(RootView(core: kit.core, store: kit.store, quick: kit.quick, watcher: kit.watcher, router: Router()))
+            }
+            main.showBehind()
+            try? await Task.sleep(for: .seconds(hold))
+            exit(0)
+        }
+
         for (name, socket) in homes {
             let kit = await Kit(socket: socket, up: name != "failed")
-            await shoot("main-\(name)", size: NSSize(width: 1040, height: 760), settle: .milliseconds(900)) {
+            await shootWindow("main-\(name)") {
                 RootView(core: kit.core, store: kit.store, quick: kit.quick, watcher: kit.watcher, router: Router())
             }
             if ["full", "clean", "failed"].contains(name) {
@@ -65,6 +80,13 @@ enum Snapshots {
     /// Everything that needs a populated store.
     private static func shootFull(_ kit: Kit) async {
         let store = kit.store
+        for (tag, bucket) in [("learning", Bucket.learning), ("closed", .closed)] {
+            let router = Router()
+            router.list = bucket
+            await shootWindow("main-full-\(tag)") {
+                RootView(core: kit.core, store: store, quick: kit.quick, watcher: kit.watcher, router: router)
+            }
+        }
         await shoot("triage-full") {
             TriageView(store: store, quick: kit.quick, finished: {})
         }
@@ -163,6 +185,41 @@ enum Snapshots {
 
             if let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
                 hosting.cacheDisplay(in: hosting.bounds, to: rep)
+                let file = URL(filePath: ProcessInfo.processInfo.environment["UNROT_SNAPSHOTS"]!)
+                    .appending(path: "\(name)-\(suffix).png")
+                try? rep.representation(using: .png, properties: [:])?.write(to: file)
+            }
+            window.orderOut(nil)
+        }
+    }
+
+    /// The main window as MainWindow builds it -- titled, with the toolbar
+    /// and title bridged from SwiftUI -- drawn from its frame view, so the
+    /// toolbar and sidebar are in the picture and not only the page.
+    private static func shootWindow<V: View>(
+        _ name: String,
+        size: NSSize = NSSize(width: 1040, height: 760),
+        @ViewBuilder _ content: () -> V
+    ) async {
+        for (suffix, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            let hosting = NSHostingView(rootView: content())
+            hosting.sceneBridgingOptions = [.toolbars, .title]
+            let window = NSWindow(
+                contentRect: NSRect(origin: .zero, size: size),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                backing: .buffered, defer: false
+            )
+            window.toolbarStyle = .unified
+            window.appearance = NSAppearance(named: appearance)
+            window.contentView = hosting
+            window.setFrameOrigin(NSPoint(x: -30000, y: -30000))
+            window.orderFrontRegardless()
+            try? await Task.sleep(for: .milliseconds(1200))
+            guard let frame = window.contentView?.superview else { continue }
+            frame.layoutSubtreeIfNeeded()
+            frame.display()
+            if let rep = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) {
+                frame.cacheDisplay(in: frame.bounds, to: rep)
                 let file = URL(filePath: ProcessInfo.processInfo.environment["UNROT_SNAPSHOTS"]!)
                     .appending(path: "\(name)-\(suffix).png")
                 try? rep.representation(using: .png, properties: [:])?.write(to: file)

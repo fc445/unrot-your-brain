@@ -121,6 +121,9 @@ struct Keycap: View {
 struct StatusPill: View {
     let watcher: Watcher
     let core: CoreProcess
+    /// In a toolbar, which gives its items their own container: a capsule of
+    /// ours inside it would be a background on a background.
+    var bare = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -129,9 +132,12 @@ struct StatusPill: View {
         }
         .font(.system(size: 12, weight: .semibold))
         .foregroundStyle(tint)
-        .padding(.horizontal, 10)
+        .padding(.horizontal, bare ? 4 : 10)
         .padding(.vertical, 4)
-        .background(tint.opacity(0.12), in: Capsule())
+        .background(bare ? Color.clear : tint.opacity(0.12), in: Capsule())
+        // What the sidebar's footer used to say, for whoever wonders.
+        .help(core.status.isUp ? "The core is running on a local socket" : "The core is not running")
+        .accessibilityElement(children: .combine)
     }
 
     private var label: String {

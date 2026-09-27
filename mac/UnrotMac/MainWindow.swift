@@ -33,6 +33,15 @@ final class MainWindow: NSObject, NSWindowDelegate {
         NSApp.activate()
     }
 
+    /// On screen but behind every other window, and without taking focus:
+    /// for a tool to capture it while someone is using the Mac for something
+    /// else. It draws as an inactive window does, because that is what it is.
+    func showBehind() {
+        let window = window ?? build()
+        self.window = window
+        window.orderBack(nil)
+    }
+
     private func build() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1040, height: 760),
@@ -40,12 +49,17 @@ final class MainWindow: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "unrot"
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
+        window.toolbarStyle = .unified
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 820, height: 520)
-        window.contentView = NSHostingView(rootView: content())
+        let hosting = NSHostingView(rootView: content())
+        // Hands the page's `.toolbar`, title and subtitle to this window.
+        // Without it they would go nowhere: SwiftUI only puts them in windows
+        // its own scenes made. A view rather than a hosting controller, because
+        // a window binds its title to its content view controller's, and that
+        // binding would overwrite the bridged one with nothing.
+        hosting.sceneBridgingOptions = [.toolbars, .title]
+        window.contentView = hosting
         window.delegate = self
         if !window.setFrameUsingName("unrot.main") { window.center() }
         window.setFrameAutosaveName("unrot.main")
