@@ -3,6 +3,16 @@
   <channel>
     <title>unrot</title>
     <item>
+      <title>unrot 0.2.0</title>
+      <guid isPermaLink="false">v0.2.0</guid>
+      <pubDate>Sun, 27 Sep 2026 16:34:18 +0000</pubDate>
+      <sparkle:version>66</sparkle:version>
+      <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
+      <sparkle:channel>prod</sparkle:channel>
+      <sparkle:fullReleaseNotesLink>https://github.com/fc445/unrot-your-brain/releases/tag/v0.2.0</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/fc445/unrot-your-brain/releases/download/v0.2.0/Unrot-0.2.0.dmg" length="49038637" type="application/octet-stream" sparkle:edSignature="xFlwn9GUduq1JjMkyVb/lfDiUSK7mzbZ9FnlAcD1gHZPVgTvRbD/Jl7dcAg6Wiq+3JtVAahithdpMDVt+sd3DA==" />
+    </item>
+    <item>
       <title>unrot 0.2.0-dev.2</title>
       <guid isPermaLink="false">v0.2.0-dev.2</guid>
       <pubDate>Sun, 27 Sep 2026 14:11:18 +0000</pubDate>
