@@ -21,6 +21,7 @@ struct UnrotMacApp: App {
                 regenerator: delegate.regenerator,
                 client: delegate.client,
                 updater: delegate.updater,
+                menuBar: delegate.menuBar,
                 restartCore: { delegate.core.restart() }
             )
             #if DEV_FEATURES
@@ -84,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var regenerator = Regenerator(client: client, store: store,
                                        concurrency: { [model] in model.concurrency })
     let router = Router()
+    let menuBar = MenuBarPresence()
     let onboarding = Onboarding()
 
     private lazy var main = MainWindow { [unowned self] in
@@ -91,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             RootView(
                 core: core, store: store, quick: quick, watcher: watcher, router: router,
                 addGap: { [unowned self] in self.addGap() },
-                onboarding: onboarding, modelSettings: model
+                onboarding: onboarding, modelSettings: model, regenerator: regenerator
             )
                 .frame(minWidth: 820, minHeight: 520)
         )
@@ -147,6 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             core: core,
             quick: quick,
             watcher: watcher,
+            presence: menuBar,
             actions: .init(
                 router: router,
                 openMain: { [weak self] in self?.showMain() },
@@ -190,7 +193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func addGap() { capture.openBlank() }
 
-    func showStatusItem() { statusItem?.isVisible = true }
+    func showStatusItem() { menuBar.isVisible = true }
 
     private func refreshForever() async {
         while !Task.isCancelled {

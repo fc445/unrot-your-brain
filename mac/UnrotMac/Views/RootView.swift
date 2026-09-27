@@ -24,6 +24,9 @@ struct RootView: View {
     /// Present until the first run is finished; nothing is captured before then.
     var onboarding: Onboarding? = nil
     var modelSettings: ModelSettings? = nil
+    /// For asking, on Waiting on you, whether to re-examine history the
+    /// detector has since changed under.
+    var regenerator: Regenerator? = nil
 
     /// Whether the page, rather than the sidebar, has the keyboard. K and D
     /// only mean something to the page, so it starts with it.
@@ -63,10 +66,16 @@ struct RootView: View {
         }
         .task {
             await store.load()
+            await regenerator?.refresh()
+            var ticks = 0
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
                 guard core.status.isUp else { continue }
                 await store.load()
+                // The plan changes when the detector or the history does,
+                // which is rarely: once a minute is plenty.
+                ticks += 1
+                if ticks % 12 == 0 { await regenerator?.refresh() }
             }
         }
         // Follows the last answer rather than the strip, so Edit › Undo
@@ -192,6 +201,9 @@ struct RootView: View {
             .padding(.top, 4)
         if list.bucket == .open {
             QueueBar(watcher: watcher).padding(.top, 14)
+            if let regenerator {
+                ReexamineBanner(regenerator: regenerator, watcher: watcher).padding(.top, 10)
+            }
         }
     }
 
@@ -417,6 +429,69 @@ private struct QueueBar: View {
         if watcher.lastError != nil { return "exclamationmark.circle" }
         if watcher.paused { return "pause.circle" }
         return "tray.full"
+    }
+}
+
+/// The detector changed since some of the history was analysed. Asked here,
+/// beside the gaps a re-examination would change, rather than in Settings,
+/// which is for choices made once. The plan itself stays in Settings ›
+/// Advanced, and Show the Plan opens it there.
+private struct ReexamineBanner: View {
+    let regenerator: Regenerator
+    let watcher: Watcher
+    @Environment(\.openSettings) private var openSettings
+    @State private var confirming = false
+
+    var body: some View {
+        if let progress = regenerator.progress {
+            bar(
+                title: "Re-examining \(min(progress.done + 1, progress.total)) of \(progress.total)…",
+                text: "Your judgments are not touched. It can stop between any two sessions."
+            ) {
+                Button("Stop") { regenerator.stop() }.buttonStyle(UnrotButton())
+            }
+        } else if let previously, previously > 0, let plan = regenerator.plan, plan.canRun {
+            bar(
+                title: "The detector changed. Re-examine your history?",
+                text: "\(previously) session\(previously == 1 ? " was" : "s were") analysed by an older detector. \(plan.protected) of your judgments are protected and replayed untouched."
+            ) {
+                Button("Show the Plan") {
+                    UserDefaults.standard.set(SettingsView.Tab.advanced.rawValue, forKey: SettingsView.tabKey)
+                    openSettings()
+                }
+                .buttonStyle(UnrotButton())
+                Button("Re-examine…") { confirming = true }.buttonStyle(UnrotButton(weight: .primary))
+            }
+            .confirmationDialog("Re-examine \(plan.toRun.count) sessions?", isPresented: $confirming) {
+                Button("Re-examine") { regenerator.start() }
+            } message: {
+                Text("This makes model calls for each session, and costs what that costs. It stops between any two sessions, and your judgments are not touched.")
+            }
+        }
+    }
+
+    /// Sessions a regeneration would re-run that were already analysed once --
+    /// i.e. by a detector that has since changed. The never-analysed ones are
+    /// the queue's business, not this banner's.
+    private var previously: Int? {
+        guard let plan = regenerator.plan else { return nil }
+        let never = watcher.queue?.pending.filter { $0.reason == "never" }.count ?? 0
+        return max(0, plan.toRun.count - never)
+    }
+
+    private func bar<Buttons: View>(title: String, text: String, @ViewBuilder buttons: () -> Buttons) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(Color.bucketLearning)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Color.bucketLearning)
+                Text(text).font(.system(size: 12)).foregroundStyle(Color.inkSoft)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            buttons()
+        }
+        .padding(10)
+        .background(Color.bucketLearningBG, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 

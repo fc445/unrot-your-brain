@@ -54,7 +54,8 @@ enum Snapshots {
         for (name, socket) in homes {
             let kit = await Kit(socket: socket, up: name != "failed")
             await shootWindow("main-\(name)") {
-                RootView(core: kit.core, store: kit.store, quick: kit.quick, watcher: kit.watcher, router: Router())
+                RootView(core: kit.core, store: kit.store, quick: kit.quick, watcher: kit.watcher, router: Router(),
+                         regenerator: Regenerator(client: kit.client, store: kit.store))
             }
             if ["full", "clean", "failed"].contains(name) {
                 await shoot("popover-\(name)") {
@@ -141,24 +142,23 @@ enum Snapshots {
         }
 
         let settings = ModelSettings()
-        await shoot("settings-capture", size: NSSize(width: 760, height: 620), settle: .milliseconds(900)) {
-            CapturePane(watcher: kit.watcher).frame(width: 760, height: 620)
+        await shoot("settings-capture", size: NSSize(width: 680, height: 600), settle: .milliseconds(900)) {
+            CapturePane(watcher: kit.watcher).frame(width: SettingsView.width, height: 600)
         }
         let regenerator = Regenerator(client: kit.client, store: store)
-        await shoot("settings-model", size: NSSize(width: 760, height: 620), settle: .milliseconds(1200)) {
-            ModelPane(settings: settings, client: kit.client, watcher: kit.watcher, regenerator: regenerator,
-                      restartCore: {}, showPlan: {})
-                .frame(width: 760, height: 620)
+        await shoot("settings-model", size: NSSize(width: 680, height: 640), settle: .milliseconds(1200)) {
+            ModelPane(settings: settings, client: kit.client, restartCore: {})
+                .frame(width: SettingsView.width, height: 640)
         }
-        await shoot("settings-notifications", size: NSSize(width: 760, height: 420)) {
+        await shoot("settings-notifications", size: NSSize(width: 680, height: 320)) {
             NotificationsPane(notifier: Notifier(store: store, quick: kit.quick, openMain: {}, openTriage: {}))
         }
-        await shoot("settings-advanced", size: NSSize(width: 760, height: 700), settle: .milliseconds(900)) {
-            RegeneratePane(regenerator: regenerator, updater: .preview()).frame(width: 760, height: 700)
+        await shoot("settings-advanced", size: NSSize(width: 680, height: 700), settle: .milliseconds(900)) {
+            RegeneratePane(regenerator: regenerator, updater: .preview()).frame(width: 680, height: 700)
         }
         #if DEV_FEATURES
-        await shoot("settings-pipeline", size: NSSize(width: 760, height: 620), settle: .milliseconds(900)) {
-            Form { PipelineSection(client: kit.client) }.formStyle(.grouped).frame(width: 760, height: 620)
+        await shoot("settings-pipeline", size: NSSize(width: 680, height: 620), settle: .milliseconds(900)) {
+            Form { PipelineSection(client: kit.client) }.formStyle(.grouped).frame(width: 680, height: 620)
         }
         #endif
     }
