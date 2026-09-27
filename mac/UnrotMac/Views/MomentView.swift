@@ -30,10 +30,9 @@ struct MomentSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // A sheet is closed, not navigated back from: Done, trailing, on
+            // Return -- and Escape, as every sheet closes.
             HStack(spacing: 10) {
-                Button("← Back", action: onClose)
-                    .buttonStyle(UnrotButton())
-                    .keyboardShortcut(.cancelAction)
                 Text(concept?.name ?? "")
                     .font(.system(size: 14, weight: .semibold))
                 Spacer()
@@ -43,6 +42,9 @@ struct MomentSheet: View {
                     .padding(.horizontal, 9)
                     .padding(.vertical, 4)
                     .overlay(Capsule().stroke(Color.ruleStrong, lineWidth: 1))
+                Button("Done", action: onClose)
+                    .buttonStyle(UnrotButton(weight: .primary))
+                    .keyboardShortcut(.defaultAction)
             }
             .padding(.horizontal, 16)
             .frame(height: 52)
@@ -57,6 +59,7 @@ struct MomentSheet: View {
         }
         .frame(width: 960, height: 640)
         .background(Color.paper)
+        .onExitCommand(perform: onClose)
         .task {
             do {
                 moment = try await store.moment(encounterId: request.encounterId)
