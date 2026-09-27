@@ -90,7 +90,8 @@ private struct SourceRow: View {
                 if let url = source.url {
                     Link(source.title ?? url.absoluteString, destination: url)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.link)
+                        .foregroundStyle(Color.inkPrimary)
+                        .underline()
                 } else {
                     Text(source.title ?? source.ref ?? "Untitled source")
                         .font(.system(size: 13, weight: .semibold))

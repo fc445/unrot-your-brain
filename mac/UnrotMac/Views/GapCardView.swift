@@ -67,7 +67,9 @@ struct GapCardView: View {
         .background(Color.card, in: RoundedRectangle(cornerRadius: 10))
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(isFocused ? Color.link.opacity(0.7) : Color.rule, lineWidth: isFocused ? 1.5 : 1)
+                // The system accent, as focus is everywhere else on the Mac --
+                // and not amber, which on this card already means "waiting".
+                .stroke(isFocused ? Color.accentColor : Color.rule, lineWidth: isFocused ? 2 : 1)
         )
         .opacity(store.isBusy(concept) ? 0.55 : 1)
         .animation(.easeOut(duration: 0.12), value: isFocused)

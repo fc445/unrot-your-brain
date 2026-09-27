@@ -10,8 +10,6 @@ import SwiftUI
 import UnrotKit
 
 extension Color {
-    /// The canvas's link and accent amber: `#8a5208` on paper, lighter at night.
-    static let link = Color.ink(0x8a5208, 0xe5a94f)
     static let watching = Color.ink(0x2f7a4f, 0x72b98d)
 }
 
@@ -59,15 +57,28 @@ struct UnrotButton: ButtonStyle {
     }
 }
 
-/// "Show the moment →" -- amber, never blue: blue on this palette reads as the
-/// learning bucket, and a link is not a bucket.
+/// "Show the moment…" -- ink, not a colour. Every colour on this palette
+/// already means something: amber is Waiting on you, blue is To learn, green is
+/// Closed, and a link is none of them. It says it is a link by underlining
+/// under the pointer instead.
 struct LinkButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(Color.link)
-            .opacity(configuration.isPressed ? 0.6 : 1)
-            .contentShape(Rectangle())
+        Rendered(configuration: configuration)
+    }
+
+    private struct Rendered: View {
+        let configuration: Configuration
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.inkPrimary)
+                .underline(hovering)
+                .opacity(configuration.isPressed ? 0.6 : 1)
+                .contentShape(Rectangle())
+                .onHover { hovering = $0 }
+        }
     }
 }
 
