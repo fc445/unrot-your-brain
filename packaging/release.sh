@@ -8,7 +8,9 @@
 #   packaging/release.sh [--check]
 #
 # UNROT_CHANNEL is prod unless set; dev compiles in the code behind
-# `#if DEV_FEATURES`. For an ad-hoc DMG without a Developer ID, see dmg.sh.
+# `#if DEV_FEATURES`, and takes UNROT_DEV_LANGSMITH_API_KEY as the Developer
+# tab's default LangSmith key. A prod build never gets one. For an ad-hoc DMG
+# without a Developer ID, see dmg.sh.
 #
 # NOT YET RUN END TO END. It was written on a machine with no Developer ID
 # certificate, so the signing and notarisation steps have never executed. What
@@ -50,6 +52,10 @@ xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
   || fail "no notarisation profile '$NOTARY_PROFILE' -- run: xcrun notarytool store-credentials $NOTARY_PROFILE"
 command -v uv >/dev/null || fail "uv is not installed"
 
+# xcodebuild reads build settings from the environment too, so prod passes an
+# empty key explicitly.
+if [ "$channel" = dev ]; then langsmith_key="${UNROT_DEV_LANGSMITH_API_KEY:-}"; else langsmith_key=""; fi
+
 echo "channel:   $channel"
 echo "identity:  $DEVELOPER_ID"
 echo "team:      $team"
@@ -69,7 +75,7 @@ uv run --group packaging pyinstaller "$repo/packaging/unrot-core.spec" --noconfi
 # out through packaging/sign-core.sh before Xcode seals the app around it.
 xcodebuild -project "$repo/mac/Unrot.xcodeproj" -scheme UnrotMac -configuration Release \
   -archivePath "$out/Unrot.xcarchive" archive \
-  UNROT_CHANNEL="$channel" \
+  UNROT_CHANNEL="$channel" UNROT_DEV_LANGSMITH_API_KEY="$langsmith_key" \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$DEVELOPER_ID" DEVELOPMENT_TEAM="$team" \
   OTHER_CODE_SIGN_FLAGS="--timestamp"
 
@@ -78,6 +84,10 @@ app="$out/Unrot.xcarchive/Products/Applications/Unrot.app"
 
 # --- 3. verify before paying for a notarisation round trip ----------------------------
 codesign --verify --deep --strict --verbose=2 "$app"
+if [ "$channel" = prod ]; then
+  [ -z "$(/usr/libexec/PlistBuddy -c 'Print :UnrotLangSmithKey' "$app/Contents/Info.plist" 2>/dev/null)" ] \
+    || fail "a prod build carries a LangSmith key"
+fi
 codesign -dv "$app/Contents/Resources/unrot-core/unrot-core" 2>&1 | grep -q 'runtime' \
   || fail "the embedded core is not signed with the hardened runtime"
 

@@ -30,6 +30,12 @@ DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "inclusionai/ling-3.0-flash"
 DEFAULT_REASONING_EFFORT = "low"
 DEFAULT_MAX_TOKENS = 8_000
+#: How many model calls one piece of work may have in flight: a session's
+#: transcript chunks, or -- in the app -- sessions side by side. Each call is
+#: mostly waiting on the provider (a detection call takes about a minute, most of
+#: it reasoning), so four at once is close to four times the throughput. A local
+#: server usually answers one request at a time, so there it is one.
+DEFAULT_CONCURRENCY = 4
 
 
 @dataclass(frozen=True)
@@ -54,6 +60,9 @@ class ModelConfig:
     #: stop, and it should find out in about two minutes rather than ten, at a
     #: quarter of the cost. `UNROT_MAX_TOKENS` raises it for a higher effort.
     max_tokens: int = DEFAULT_MAX_TOKENS
+    #: See `DEFAULT_CONCURRENCY`. `UNROT_CONCURRENCY` sets it; `from_env` makes
+    #: it 1 for a local endpoint unless that says otherwise.
+    concurrency: int = DEFAULT_CONCURRENCY
 
     @classmethod
     def from_env(cls, **overrides) -> "ModelConfig":
@@ -62,11 +71,22 @@ class ModelConfig:
             or os.environ.get("OPENROUTER_API_KEY")
             or os.environ.get("OPENAI_API_KEY")
         )
+        base_url = (
+            overrides.pop("base_url", None)
+            or os.environ.get("UNROT_BASE_URL")
+            or DEFAULT_BASE_URL
+        )
+        concurrency = max(
+            1,
+            int(
+                overrides.pop("concurrency", None)
+                or os.environ.get("UNROT_CONCURRENCY")
+                or (1 if is_local(base_url) else DEFAULT_CONCURRENCY)
+            ),
+        )
         return cls(
             model=overrides.pop("model", None) or os.environ.get("UNROT_MODEL") or DEFAULT_MODEL,
-            base_url=overrides.pop("base_url", None)
-            or os.environ.get("UNROT_BASE_URL")
-            or DEFAULT_BASE_URL,
+            base_url=base_url,
             api_key=key,
             max_tokens=int(
                 overrides.pop("max_tokens", None)
@@ -77,6 +97,7 @@ class ModelConfig:
                 "reasoning_effort", os.environ.get("UNROT_REASONING_EFFORT", DEFAULT_REASONING_EFFORT)
             )
             or None,
+            concurrency=concurrency,
             **overrides,
         )
 
@@ -114,6 +135,82 @@ NO_KEY_MESSAGE = (
 )
 
 
+def decision_client(
+    config: ModelConfig,
+    *,
+    model: str,
+    meter=None,
+    purpose: str = "other",
+    transport=None,
+):
+    """A System One classifier (Jev), as `classify(state, questions) -> response`.
+
+    Built on `langchain_typesafe.TypeSafeClassifier`, so each call is a LangChain
+    run: inside the analysis graph it nests under the node that made it, and
+    LangSmith sees the state, the questions and the probabilities it returned.
+    It still goes to OpenRouter -- the classifier appends `/v1/systemone` to the
+    root it is given, and OpenRouter serves that API.
+
+    The classifier keeps only token counts from the response, and OpenRouter's
+    price is in the same `usage` object. So the HTTP client it is handed reads
+    the raw response on its way past and gives it to the meter, and spend stays
+    priced rather than going quietly "unpriced" for every Jev call.
+
+    `transport` is for tests: an `httpx2.MockTransport` in place of the network.
+    """
+    import threading
+    import time
+    import warnings
+
+    import httpx2
+
+    from .spend import record_http
+
+    if not config.api_key:
+        raise RuntimeError(NO_KEY_MESSAGE)
+
+    last = threading.local()
+
+    def keep_payload(response) -> None:
+        response.read()
+        try:
+            last.payload = response.json()
+        except ValueError:
+            last.payload = {}
+
+    http = httpx2.Client(
+        timeout=30.0, transport=transport, event_hooks={"response": [keep_payload]}
+    )
+    with warnings.catch_warnings():
+        # "TypeSafeClassifier is in beta": known, and pinned for exactly that reason.
+        warnings.simplefilter("ignore")
+        from langchain_typesafe import TypeSafeClassifier
+
+        classifier = TypeSafeClassifier(
+            model=model,
+            api_key=config.api_key,
+            base_url=config.base_url.rstrip("/").removesuffix("/v1"),
+            client=http,
+        )
+    runnable = classifier.with_config(run_name=purpose, tags=[purpose])
+
+    def classify(state: str, questions: dict):
+        last.payload = None
+        started = time.monotonic()
+        try:
+            response = runnable.invoke({"state": state, "questions": questions})
+        except Exception as exc:
+            record_http(meter, purpose, config, error=exc, model=model, started=started)
+            raise
+        record_http(
+            meter, purpose, config, payload=last.payload or {}, model=model, started=started
+        )
+        return response
+
+    classify.model = model
+    return classify
+
+
 def structured_client(
     config: ModelConfig, schema, *, meter=None, purpose: str = "other"
 ) -> "Structured":
@@ -143,7 +240,10 @@ def structured_client(
             # Both clients are metered: the forced retry is billed too, and so
             # is the call before it that ran out of room.
             callbacks=tap(meter, purpose, config) or None,
-        ).with_structured_output(schema)
+            # The run's name in a trace: "detection" reads better beside
+            # "triage" and "resolution" than a class name does.
+            name=purpose,
+        ).with_structured_output(schema).with_config(run_name=purpose, tags=[purpose])
 
     on_openrouter = "openrouter.ai" in config.base_url
     return Structured(

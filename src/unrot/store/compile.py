@@ -130,6 +130,11 @@ def compile_state(conn: sqlite3.Connection) -> CompileResult:
     # it has to be, and order-dependent only where order is the answer (which of
     # two judgments is the latest).
     judgments: dict[str, tuple[str | None, str | None]] = {}
+    # Triage's spot checks, by encounter id. Deferred like judgments: triage
+    # writes its event before the resolver records the encounter it names.
+    # Sticky -- once asked as a spot check, always one -- so a regeneration that
+    # re-judges the same moment cannot quietly un-ask a question already answered.
+    spot_checks: set[str] = set()
     grades: dict[str, dict] = {}
     deliveries: dict[str, str] = {}
 
@@ -190,7 +195,12 @@ def compile_state(conn: sqlite3.Connection) -> CompileResult:
                 "paraphrase_superseded": 1 if (existing and row["supersedes"]) else 0,
                 "judgment": None,
                 "judged_at": None,
+                "spot_check": 0,
             }
+
+        elif etype == "familiarity_judged":
+            if payload.get("verdict") == "spot_check" and payload.get("encounter_id"):
+                spot_checks.add(payload["encounter_id"])
 
         elif etype in ("encounter_confirmed", "encounter_dismissed"):
             judgments[payload["encounter_id"]] = (
@@ -272,6 +282,11 @@ def compile_state(conn: sqlite3.Connection) -> CompileResult:
             record["judgment"] = judgment
             record["judged_at"] = judged_at
 
+    for encounter_id in spot_checks:
+        record = encounters.get(encounter_id)
+        if record is not None:
+            record["spot_check"] = 1
+
     for explanation_id, grade in grades.items():
         target = explanations.get(explanation_id)
         if target is not None:
@@ -318,10 +333,10 @@ def _write(
             "INSERT INTO compiled_encounters (encounter_id, concept_id, source,"
             " paraphrase, session_id, line_start, line_end, detector_version,"
             " judgment, judged_at, occurred_at, paraphrase_event_id,"
-            " paraphrase_superseded)"
+            " paraphrase_superseded, spot_check)"
             " VALUES (:encounter_id, :concept_id, :source, :paraphrase, :session_id,"
             " :line_start, :line_end, :detector_version, :judgment, :judged_at,"
-            " :occurred_at, :paraphrase_event_id, :paraphrase_superseded)",
+            " :occurred_at, :paraphrase_event_id, :paraphrase_superseded, :spot_check)",
             record,
         )
 

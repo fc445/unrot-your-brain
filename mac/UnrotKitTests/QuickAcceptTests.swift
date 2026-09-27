@@ -113,16 +113,29 @@ struct QuickAcceptTests {
         #expect(store.waitingCount == 1)
     }
 
-    @Test("the undo window closes")
-    func undoExpires() async throws {
-        let (_, server, _, quick) = try await setUp(window: .milliseconds(80))
+    @Test("the strip goes after its window, but the undo stays until the next answer")
+    func stripExpiresUndoDoesNot() async throws {
+        let (core, server, _, quick) = try await setUp(window: .milliseconds(80))
         _ = server
-        await quick.answerNext(.confirm)
+        let answer = await quick.answerNext(.confirm)
         #expect(quick.undoable != nil)
 
         try await Task.sleep(for: .milliseconds(300))
 
         #expect(quick.undoable == nil)
+        #expect(quick.lastAnswer == answer)
+        #expect(await quick.undo())
+        #expect(quick.lastAnswer == nil)
+        #expect(core.requests.contains("POST /api/encounters/e1/retract"))
+    }
+
+    @Test("an undo takes back one answer, not two")
+    func undoIsSingle() async throws {
+        let (_, server, _, quick) = try await setUp()
+        _ = server
+        await quick.answerNext(.confirm)
+
+        #expect(await quick.undo())
         #expect(await quick.undo() == false)
     }
 
@@ -136,6 +149,7 @@ struct QuickAcceptTests {
 
         #expect(answer == nil)
         #expect(quick.undoable == nil)
+        #expect(quick.lastAnswer == nil)
     }
 
     @Test("quick accept never reaches the comprehension check")

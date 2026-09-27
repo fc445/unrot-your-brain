@@ -43,37 +43,42 @@ def detector_version(model_label: str) -> str:
     return f"detector/{DETECTOR_VERSION}+{model_label}+{prompt_module.prompt_id()}"
 
 
-def detect(
-    conn: sqlite3.Connection,
-    session_id: str,
-    *,
-    propose,
-    model_label: str,
-    max_candidates: int = DEFAULT_MAX_CANDIDATES,
-    chunk_budget: int = 40_000,
-) -> DetectionResult:
-    """Detect candidate gaps in one captured session.
+def plan(conn: sqlite3.Connection, session_id: str, *, chunk_budget: int = 40_000):
+    """The session's windows, and the chunks they are proposed in.
 
-    `propose` takes a rendered prompt and returns raw candidate dicts. Passing it
-    in rather than building it here keeps this function free of langchain, of a
-    network, and of any opinion about which model is answering.
+    Chunks are independent of each other -- each is one prompt and one model
+    call -- which is what lets the analysis graph send them out in parallel.
     """
-    version = detector_version(model_label)
     windows = build_windows(conn, session_id)
-    chunks = chunk_windows(windows, budget=chunk_budget)
+    return windows, chunk_windows(windows, budget=chunk_budget)
 
-    by_line = {w.assistant_line: w for w in windows}
-    raw: list[dict] = []
-    for chunk in chunks:
-        raw.extend(
-            propose(
-                prompt_module.render(
-                    prompt_module.format_windows(chunk),
-                    max_candidates=max_candidates,
-                )
-            )
+
+def propose_chunk(propose, chunk, *, max_candidates: int) -> list[dict]:
+    """One chunk, one model call: the raw candidate dicts it proposes."""
+    return propose(
+        prompt_module.render(
+            prompt_module.format_windows(chunk),
+            max_candidates=max_candidates,
         )
+    )
 
+
+def assemble(
+    raw: list[dict],
+    *,
+    session_id: str,
+    version: str,
+    windows,
+    calls_made: int,
+    max_candidates: int = DEFAULT_MAX_CANDIDATES,
+) -> DetectionResult:
+    """Turn what the chunks proposed into a ranked, budgeted result.
+
+    `raw` must be in chunk order. The first mention of a term wins the dedupe,
+    so an order that depended on which parallel call happened to finish first
+    would make the same session rank differently on different runs.
+    """
+    by_line = {w.assistant_line: w for w in windows}
     seen: set[str] = set()
     candidates: list[Candidate] = []
     for item in raw:
@@ -110,7 +115,39 @@ def detect(
         emitted=emitted,
         ranked=ranked,
         windows_examined=len(windows),
+        calls_made=calls_made,
+    )
+
+
+def detect(
+    conn: sqlite3.Connection,
+    session_id: str,
+    *,
+    propose,
+    model_label: str,
+    max_candidates: int = DEFAULT_MAX_CANDIDATES,
+    chunk_budget: int = 40_000,
+) -> DetectionResult:
+    """Detect candidate gaps in one captured session, one chunk after another.
+
+    `propose` takes a rendered prompt and returns raw candidate dicts. Passing it
+    in rather than building it here keeps this function free of langchain, of a
+    network, and of any opinion about which model is answering.
+
+    The analysis graph (`unrot.pipeline`) runs the same three steps with the
+    chunks in parallel; this sequential form is what the detector's own CLI uses.
+    """
+    windows, chunks = plan(conn, session_id, chunk_budget=chunk_budget)
+    raw: list[dict] = []
+    for chunk in chunks:
+        raw.extend(propose_chunk(propose, chunk, max_candidates=max_candidates))
+    return assemble(
+        raw,
+        session_id=session_id,
+        version=detector_version(model_label),
+        windows=windows,
         calls_made=len(chunks),
+        max_candidates=max_candidates,
     )
 
 

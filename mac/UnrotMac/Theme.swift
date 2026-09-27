@@ -16,10 +16,18 @@ import UnrotKit
 
 extension Color {
     /// A colour that resolves per appearance, rather than two stylesheets.
-    static func ink(_ light: UInt32, _ dark: UInt32) -> Color {
+    /// `contrast` is what it becomes under Accessibility › Increase Contrast;
+    /// without one, the colour is already strong enough to stay as it is.
+    static func ink(_ light: UInt32, _ dark: UInt32, contrast: (light: UInt32, dark: UInt32)? = nil) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            return NSColor(rgb: isDark ? dark : light)
+            switch appearance.bestMatch(from: [
+                .aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua,
+            ]) {
+            case .accessibilityHighContrastAqua: NSColor(rgb: contrast?.light ?? light)
+            case .accessibilityHighContrastDarkAqua: NSColor(rgb: contrast?.dark ?? dark)
+            case .darkAqua: NSColor(rgb: dark)
+            default: NSColor(rgb: light)
+            }
         })
     }
 
@@ -27,22 +35,34 @@ extension Color {
     static let paper = Color.ink(0xfbfaf7, 0x16171a)
     static let card = Color.ink(0xffffff, 0x1e2024)
     static let sunk = Color.ink(0xf4f2ed, 0x17191c)
-    static let rule = Color.ink(0xe4e0d7, 0x2e3238)
-    static let ruleStrong = Color.ink(0xcfc9bc, 0x414750)
+    static let rule = Color.ink(0xe4e0d7, 0x2e3238, contrast: (0xc1b7a2, 0x41474f))
+    static let ruleStrong = Color.ink(0xcfc9bc, 0x414750, contrast: (0xa69c88, 0x5c6470))
 
-    // Text
+    // Text. Every text colour is at least 4.5:1 on every surface above, in
+    // both appearances: inkFaint and bucketOpen were darkened (and inkFaint
+    // lightened at night) to get there, from 3.4 and 3.9.
     static let inkPrimary = Color.ink(0x1c1a17, 0xe9e7e3)
-    static let inkSoft = Color.ink(0x5c574e, 0xa8a49d)
-    static let inkFaint = Color.ink(0x8a8377, 0x7b7770)
+    static let inkSoft = Color.ink(0x5c574e, 0xa8a49d, contrast: (0x3e3a34, 0xcdcbc7))
+    static let inkFaint = Color.ink(0x726c62, 0x8c8880, contrast: (0x555149, 0xadaaa4))
 
     // The three buckets, and the one alarm.
-    static let bucketOpen = Color.ink(0xa96a0b, 0xe5a94f)
+    static let bucketOpen = Color.ink(0x99600a, 0xe5a94f, contrast: (0x734807, 0xf0c078))
     static let bucketOpenBG = Color.ink(0xfdf3e2, 0x2e2617)
-    static let bucketLearning = Color.ink(0x2f5fa8, 0x7fabe8)
+    static let bucketLearning = Color.ink(0x2f5fa8, 0x7fabe8, contrast: (0x234b87, 0xa3c4f0))
     static let bucketLearningBG = Color.ink(0xeaf1fb, 0x1a2433)
-    static let bucketClosed = Color.ink(0x3d7a56, 0x72b98d)
+    static let bucketClosed = Color.ink(0x3d7a56, 0x72b98d, contrast: (0x2c5d41, 0x97d0ab))
     static let bucketClosedBG = Color.ink(0xe9f4ed, 0x18271e)
-    static let alarm = Color.ink(0xa8352b, 0xe2867c)
+    static let alarm = Color.ink(0xa8352b, 0xe2867c, contrast: (0x86281f, 0xf0a9a1))
+
+    // The accent: British racing green. Everything the app lets you act on --
+    // the primary button, links, the focused card, switches -- and nothing it
+    // merely reports. Also the asset catalog's AccentColor, but set explicitly
+    // too: macOS uses an app's own accent only when the system accent is
+    // Multicolor, and this one is meant to hold whatever the system's is.
+    /// For text, rules and rings: 10.4:1 on paper by day, 4.8:1 at night.
+    static let accent = Color.ink(0x004225, 0x4a9a6d, contrast: (0x002b18, 0x6bb88a))
+    /// Behind white button text: 11.6:1 by day, 6.9:1 at night.
+    static let accentFill = Color.ink(0x004225, 0x1f6641, contrast: (0x002b18, 0x17502f))
     static let alarmBG = Color.ink(0xfceceb, 0x2e1c1a)
 }
 
@@ -67,12 +87,33 @@ extension Bucket {
         }
     }
 
+    /// The sidebar's symbol: a question waiting, a thing to read, a thing done.
+    var symbol: String {
+        switch self {
+        case .open: "questionmark.circle"
+        case .learning: "book"
+        case .closed: "checkmark.circle"
+        default: "circle"
+        }
+    }
+
     var wash: Color {
         switch self {
         case .open: .bucketOpenBG
         case .learning: .bucketLearningBG
         case .closed: .bucketClosedBG
         default: .sunk
+        }
+    }
+}
+
+extension BucketSection {
+    /// Title case, as menu items are: "Waiting on You".
+    var menuTitle: String {
+        switch bucket {
+        case .open: "Waiting on You"
+        case .learning: "To Learn"
+        default: title
         }
     }
 }

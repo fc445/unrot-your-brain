@@ -144,6 +144,12 @@ public struct UnrotClient: Sendable {
         return try await get(Spend.self, "/api/spend?since=\(escape(formatter.string(from: since)))")
     }
 
+    /// Each analysis stage over the last `days`: counts, time, cost, and --
+    /// from the answers given -- how often it was right.
+    public func pipeline(days: Int = 7) async throws -> PipelineReport {
+        try await get(PipelineReport.self, "/api/pipeline?days=\(days)")
+    }
+
     // MARK: - Settings and regeneration
 
     public func config() async throws -> CoreConfig {
@@ -160,6 +166,25 @@ public struct UnrotClient: Sendable {
         let patient = UnixSocketHTTP(socketPath: http.socketPath, timeout: 900)
         return try decode(RegenPass.self, await perform("POST", "/api/regen", body: body, over: patient))
     }
+
+    #if DEV_FEATURES
+    /// What `devWipe` would discard, for the confirmation dialog. Dev builds
+    /// only -- refused with `.refused(403, _)` on any other core, and compiled
+    /// out of a prod build entirely along with `DevWipePlan` itself.
+    public func devWipePlan() async throws -> DevWipePlan {
+        try await get(DevWipePlan.self, "/api/dev/wipe/plan")
+    }
+
+    /// Back up the store and discard model-generated data (and, opted in,
+    /// judgments, explanations and manual submissions too). Makes no model
+    /// calls itself -- the rerun that follows is driven through `regen`, one
+    /// session at a time, the same as any other regeneration.
+    public func devWipe(discardUserInput: Bool) async throws -> DevWipeResult {
+        let body = try JSONSerialization.data(withJSONObject: ["discard_user_input": discardUserInput])
+        let patient = UnixSocketHTTP(socketPath: http.socketPath, timeout: 120)
+        return try decode(DevWipeResult.self, await perform("POST", "/api/dev/wipe", body: body, over: patient))
+    }
+    #endif
 
     // MARK: - Export
 

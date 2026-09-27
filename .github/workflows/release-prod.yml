@@ -17,3 +17,5 @@ jobs:
     with:
       channel: prod
       tag: ${{ github.event.release.tag_name }}
+    secrets:
+      SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}

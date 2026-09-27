@@ -77,6 +77,35 @@ The Developer tab in Settings is the first: *Export for analysis* (PR-32),
 headed by what the build is (channel, version, store) and shortcuts to the
 store folder and `core.log`. A prod build has no Developer tab.
 
+It also has **Export generations to LangSmith**, off by default. When it is on,
+the core is started with `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY` and
+`LANGSMITH_PROJECT` (default `unrot-dev`), and LangChain traces every model call
+it makes. When it is off, the core gets `LANGSMITH_TRACING=false`, so a
+`LANGSMITH_TRACING=true` in the repo `.env` does not turn tracing on behind the
+toggle. Changes take effect when the core restarts. The key comes from the
+build: `UNROT_DEV_LANGSMITH_API_KEY` on the `dmg.sh`/`release.sh` line, or the
+repo's `LANGSMITH_API_KEY` secret for a GitHub pre-release. It is stored as
+`UnrotLangSmithKey` in Info.plist, **so anyone with the DMG can read it**. A key
+saved in the tab replaces the build's key. You need one for a Debug build out
+of Xcode, because Xcode does not pass one to it.
+
+It also has **Wipe and re-run**: discard every detected encounter, resolver
+judgment, grade and generated material, and re-examine every captured session
+under the model in effect now, from nothing. Unlike Advanced's *Regenerate*,
+which only updates what a new detector version disagrees with, this is a full
+reset -- for a store full of half-finished prompt experiments, not a bad
+answer here and there. Judgments, explanations and anything submitted by hand
+are kept by default; an opt-in toggle discards those too, for a completely
+empty store. A dev build shares the real `~/.unrot` with prod, so before
+anything is deleted the store is backed up to a timestamped copy in
+`~/.unrot/backups/`, and the confirmation dialog says how many sessions will
+be re-examined and that it costs model calls. The rerun itself is driven
+through the same `Regenerator` *Regenerate* uses -- several sessions at once,
+stoppable, with the same progress and cost reporting. Reachable only because
+the app starts the core's process with `UNROT_DEV_FEATURES=1` in a dev build;
+the core refuses `POST /api/dev/wipe` outright without it, so the endpoint is
+unusable even against a dev-build core if something else started it.
+
 To put a build on a Mac as a DMG:
 
 ```bash
@@ -175,10 +204,11 @@ every judgment alone).
 
 ## Not done
 
-- **Signing, notarisation, Sparkle.** `packaging/release.sh` is written and
-  checks its prerequisites, but has never run: this machine has no Developer ID.
-  Ad-hoc DMGs from `packaging/dmg.sh` do work.
-  Sparkle needs a decision about where updates are hosted.
+- **Signing and notarisation.** `packaging/release.sh` is written and checks its
+  prerequisites, but has never run: this machine has no Developer ID. Ad-hoc
+  DMGs from `packaging/dmg.sh` do work, and so does Sparkle between them (see
+  "Updates" in [`packaging/README.md`](../packaging/README.md)). The cost is a
+  Keychain prompt after every update, which a Developer ID would end.
 - **Deleting retained copies.** Capture appends to them incrementally, so doing
   it safely needs a core operation that forgets them as well.
 - **Universal build.** The frozen core is arm64; universal2 needs a universal2

@@ -10,6 +10,7 @@
 		00000000000000000000002B /* UnrotKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000C /* UnrotKit.framework */; };
 		00000000000000000000002C /* UnrotKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000C /* UnrotKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		00000000000000000000002D /* UnrotKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000C /* UnrotKit.framework */; };
+		00000000000000000000002E /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 00000000000000000000002F /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -81,6 +82,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				00000000000000000000002B /* UnrotKit.framework in Frameworks */,
+				00000000000000000000002E /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -177,6 +179,9 @@
 				000000000000000000000007 /* UnrotMac */,
 			);
 			name = UnrotMac;
+			packageProductDependencies = (
+				00000000000000000000002F /* Sparkle */,
+			);
 			productName = UnrotMac;
 			productReference = 00000000000000000000000D /* Unrot.app */;
 			productType = "com.apple.product-type.application";
@@ -232,6 +237,9 @@
 			);
 			mainGroup = 000000000000000000000002;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				000000000000000000000030 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 000000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -440,6 +448,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Support/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -449,6 +458,8 @@
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.unrot.mac;
 				PRODUCT_NAME = Unrot;
+				SPARKLE_FEED_URL = "https://raw.githubusercontent.com/fc445/unrot-your-brain/appcast/appcast.xml";
+				SPARKLE_PUBLIC_ED_KEY = "TulE6+xw3ASaGigz3zSPUZfJdTOPztHgE50kAUBsvCI=";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				UNROT_DEV_REPO_PATH = "";
 				UNROT_DEV_REPO_PATH = "$(SRCROOT)/..";
@@ -464,6 +475,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Support/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -473,6 +485,8 @@
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.unrot.mac;
 				PRODUCT_NAME = Unrot;
+				SPARKLE_FEED_URL = "https://raw.githubusercontent.com/fc445/unrot-your-brain/appcast/appcast.xml";
+				SPARKLE_PUBLIC_ED_KEY = "TulE6+xw3ASaGigz3zSPUZfJdTOPztHgE50kAUBsvCI=";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				UNROT_DEV_REPO_PATH = "";
 			};
@@ -554,6 +568,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		000000000000000000000030 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.10.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		00000000000000000000002F /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 000000000000000000000030 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 000000000000000000000001 /* Project object */;
 }

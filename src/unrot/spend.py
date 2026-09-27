@@ -38,13 +38,14 @@ from datetime import datetime, timedelta, timezone
 PURPOSES: dict[str, str] = {
     "detection": "finding gaps",
     "resolution": "filing",
+    "familiarity": "checking familiarity",
     "grading": "grading",
     "material": "material",
 }
 
-#: The two purposes a session's analysis spends on. Cost per examined session
-#: is these, divided by the sessions they were spent on.
-ANALYSIS = ("detection", "resolution")
+#: The purposes a session's analysis spends on. Cost per examined session is
+#: these, divided by the sessions they were spent on.
+ANALYSIS = ("detection", "resolution", "familiarity")
 
 #: How many recent sessions an estimate is averaged over.
 RECENT = 20

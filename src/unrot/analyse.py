@@ -17,9 +17,13 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from .detector import detect
 from .detector.detect import DEFAULT_MAX_CANDIDATES
-from .resolver import Resolution, from_candidate, record_analysis, record_detection, resolve
+from .resolver import Resolution
+# FILING is re-exported: the API and regeneration take it from here. It lives
+# with the graph, whose writing nodes hold it.
+from .pipeline import FILING, MAX_CONCURRENCY, Deps, run_session  # noqa: F401
+from .triage import Verdict
+
 
 
 @dataclass
@@ -28,6 +32,9 @@ class Analysis:
     detector_version: str
     windows_examined: int
     resolutions: list[Resolution] = field(default_factory=list)
+    #: Candidates triage judged already familiar and did not file. Recorded in
+    #: the log as `familiarity_judged`; here so a caller can say so.
+    held_back: list[Verdict] = field(default_factory=list)
 
     @property
     def clean(self) -> bool:
@@ -44,6 +51,9 @@ def analyse_session(
     detector_label: str,
     resolver_label: str,
     max_candidates: int = DEFAULT_MAX_CANDIDATES,
+    judge=None,
+    triage_label: str = "none",
+    concurrency: int = MAX_CONCURRENCY,
 ) -> Analysis:
     """Detect, resolve every candidate, and record that the session was examined.
 
@@ -52,33 +62,29 @@ def analyse_session(
     model call that fails partway leaves the session unrecorded and therefore
     still pending; the next run re-proposes the same candidates, and their
     fingerprinted encounter ids mean they update rather than duplicate.
+
+    With a `judge`, triage stands between the two: each gap is checked against
+    what the person is known to know, and one they very likely already know is
+    held back rather than filed. Without one, this is exactly what it was.
+
+    The work itself is the graph in `unrot.pipeline`, which regeneration runs
+    too -- one definition of "analysing a session", and one trace per run.
     """
-    result = detect(
-        raw,
+    run = run_session(
         session_id,
-        propose=propose,
-        model_label=detector_label,
-        max_candidates=max_candidates,
-    )
-    resolutions = [
-        # Recompiling after each one is deliberate: the next candidate's
-        # resolution reads compiled state, and a term met twice in a session
-        # must find the concept the first mention just created.
-        resolve(conn, from_candidate(candidate), decide=decide, model_label=resolver_label)
-        for candidate in result.emitted
-    ]
-    record_detection(conn, result, max_candidates=max_candidates)
-    record_analysis(
-        conn,
-        session_id,
-        candidates_found=len(result.emitted),
-        detector_version=result.detector_version,
+        Deps(
+            conn=conn, raw=raw, propose=propose, decide=decide,
+            detector_label=detector_label, resolver_label=resolver_label,
+            max_candidates=max_candidates, judge=judge, triage_label=triage_label,
+            concurrency=concurrency,
+        ),
     )
     return Analysis(
         session_id=session_id,
-        detector_version=result.detector_version,
-        windows_examined=result.windows_examined,
-        resolutions=resolutions,
+        detector_version=run.result.detector_version,
+        windows_examined=run.result.windows_examined,
+        resolutions=run.resolutions,
+        held_back=run.held_back,
     )
 
 

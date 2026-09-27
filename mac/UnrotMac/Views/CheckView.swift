@@ -61,11 +61,11 @@ struct CheckSheet: View {
             if let check {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(check.promptText)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(.title2, weight: .semibold))
                         .foregroundStyle(Color.inkPrimary)
                         .fixedSize(horizontal: false, vertical: true)
                     Text("stored verbatim · prompt \(check.promptVersion)")
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(Color.inkFaint)
                 }
                 .padding(18)
@@ -73,9 +73,9 @@ struct CheckSheet: View {
                 .background(Color.card, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.rule, lineWidth: 1))
 
-                Text("Your answer").font(.system(size: 12.5, weight: .semibold))
+                Text("Your answer").font(.system(.callout, weight: .semibold))
                 TextEditor(text: $text)
-                    .font(.system(size: 14))
+                    .font(.system(.title3))
                     .scrollContentBackground(.hidden)
                     .padding(10)
                     .frame(height: 130)
@@ -94,7 +94,7 @@ struct CheckSheet: View {
                     if submitting { ProgressView().controlSize(.small) }
                     Spacer()
                     Text("Saved before anything grades it")
-                        .font(.system(size: 11.5))
+                        .font(.system(.subheadline))
                         .foregroundStyle(Color.inkFaint)
                 }
             } else if let loadError {
@@ -107,7 +107,7 @@ struct CheckSheet: View {
 
             (Text("It asks for causation on purpose. ").bold()
              + Text("A definition-shaped question gets definition-shaped answers, and the only boundary the rubric turns on is listed → causal. Old answers can be re-graded; a question you have moved on from cannot be re-asked."))
-                .font(.system(size: 12))
+                .font(.system(.callout))
                 .foregroundStyle(Color.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(14)
@@ -130,7 +130,7 @@ struct CheckSheet: View {
             WhatHappens(level: latest?.level)
             Spacer(minLength: 0)
             Text("Every answer keeps the question it was given to. Change the wording later and both remain readable side by side.")
-                .font(.system(size: 11))
+                .font(.system(.subheadline))
                 .foregroundStyle(Color.inkFaint)
         }
     }
@@ -164,24 +164,26 @@ private struct GradedPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(isNew ? "Graded" : "Your last answer").font(.system(size: 14, weight: .semibold))
+                Text(isNew ? "Graded" : "Your last answer").font(.system(.title3, weight: .semibold))
                 Spacer()
                 Text(stamp)
-                    .font(.system(size: 10.5, design: .monospaced))
+                    .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(Color.inkFaint)
             }
             HStack(spacing: 6) {
                 ForEach(SoloLevel.ordered, id: \.rawValue) { level in
                     let chosen = level == explanation.level
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(level.label).font(.system(size: 12.5, weight: .semibold))
-                        Text(Self.described[level] ?? "").font(.system(size: 10.5))
+                        Text(level.label).font(.system(.callout, weight: .semibold))
+                        Text(Self.described[level] ?? "").font(.system(.caption))
                     }
                     .foregroundStyle(chosen ? level.tint : Color.inkSoft)
                     .padding(9)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(chosen ? level.tint.opacity(0.1) : Color.sunk, in: RoundedRectangle(cornerRadius: 7))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(chosen ? level.tint : Color.clear, lineWidth: 1.5))
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(chosen ? .isSelected : [])
                 }
             }
             // Absent means "not measured", not "flat": no bars rather than
@@ -191,7 +193,7 @@ private struct GradedPanel: View {
                     ForEach(SoloLevel.ordered, id: \.rawValue) { level in
                         let value = distribution[level.rawValue] ?? 0
                         HStack(spacing: 10) {
-                            Text(level.rawValue).font(.system(size: 11)).frame(width: 52, alignment: .leading)
+                            Text(level.rawValue).font(.system(.subheadline)).frame(width: 52, alignment: .leading)
                             GeometryReader { geometry in
                                 ZStack(alignment: .leading) {
                                     Capsule().fill(Color.rule)
@@ -202,16 +204,19 @@ private struct GradedPanel: View {
                             }
                             .frame(height: 7)
                             Text(value, format: .percent.precision(.fractionLength(0)))
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.system(.subheadline, design: .monospaced))
                                 .frame(width: 36, alignment: .trailing)
                         }
                         .foregroundStyle(Color.inkSoft)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(level.label)
+                        .accessibilityValue(value.formatted(.percent.precision(.fractionLength(0))))
                     }
                 }
             }
             if let reasoning = explanation.reasoning, !reasoning.isEmpty {
                 Text(reasoning)
-                    .font(.system(size: 12.5))
+                    .font(.system(.callout))
                     .foregroundStyle(Color.inkSoft)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(12)
@@ -219,7 +224,7 @@ private struct GradedPanel: View {
                     .background(Color.sunk, in: RoundedRectangle(cornerRadius: 8))
             }
             Text("“\(explanation.rawText)”")
-                .font(.system(size: 12))
+                .font(.system(.callout))
                 .italic()
                 .foregroundStyle(Color.inkFaint)
                 .lineLimit(3)
@@ -243,9 +248,9 @@ private struct GradedPanel: View {
 private struct NotGraded: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Stored, not graded").font(.system(size: 14, weight: .semibold))
+            Text("Stored, not graded").font(.system(.title3, weight: .semibold))
             Text("No grader was available. Your words are the half that cannot be reconstructed, so they were committed first — this exact text can be graded later. You are never told you failed a check that never ran.")
-                .font(.system(size: 12.5))
+                .font(.system(.callout))
                 .foregroundStyle(Color.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -263,7 +268,7 @@ private struct WhatHappens: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("What happens to the gap").font(.system(size: 14, weight: .semibold))
+            Text("What happens to the gap").font(.system(.title3, weight: .semibold))
             row(.listed, "Listed or below", "stays in To learn. Material is offered, not generated.")
             row(.causal, "Causal", "compiles to known and moves to Closed.")
         }
@@ -278,7 +283,7 @@ private struct WhatHappens: View {
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
             Circle().fill(tintLevel.tint).frame(width: 7, height: 7)
             (Text(name).bold() + Text(" — \(rest)"))
-                .font(.system(size: 12.5))
+                .font(.system(.callout))
                 .foregroundStyle(reached ? Color.inkPrimary : Color.inkSoft)
         }
     }

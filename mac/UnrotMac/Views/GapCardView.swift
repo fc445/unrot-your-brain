@@ -18,6 +18,9 @@ struct GapCardView: View {
     let quick: QuickAccept
     let router: Router
     var isFocused = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var gap: GapActions { GapActions(concept: concept, quick: quick, router: router) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -25,15 +28,24 @@ struct GapCardView: View {
 
             if let paraphrase = concept.lead?.paraphrase {
                 Text(paraphrase)
-                    .font(.system(size: 13.5))
+                    .font(.system(.body))
                     .foregroundStyle(Color.inkSoft)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
 
+            if concept.isSpotCheck {
+                // Said plainly, because the answer means something different
+                // here: "I knew it" is triage having been right, not a bad flag.
+                Text("unrot thought you already knew this and would have left it off your list. Did you?")
+                    .font(.system(.callout))
+                    .foregroundStyle(Color.inkFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             if let provenance = concept.lead?.provenance {
                 Text(provenance)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(.subheadline, design: .monospaced))
                     .foregroundStyle(Color.inkFaint)
             }
 
@@ -58,27 +70,44 @@ struct GapCardView: View {
         .background(Color.card, in: RoundedRectangle(cornerRadius: 10))
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(isFocused ? Color.link.opacity(0.7) : Color.rule, lineWidth: isFocused ? 1.5 : 1)
+                // The accent, and not amber, which on this card already means
+                // "waiting".
+                .stroke(isFocused ? Color.accent : Color.rule, lineWidth: isFocused ? 2 : 1)
         )
         .opacity(store.isBusy(concept) ? 0.55 : 1)
-        .animation(.easeOut(duration: 0.12), value: isFocused)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isFocused)
+        // One group per card, named for the concept, so VoiceOver can move card
+        // by card -- and the card's answers as actions on it, so they can be
+        // given without hunting for the buttons inside.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(concept.name)
+        .accessibilityActions {
+            if gap.canAnswer {
+                Button("I didn't know this") { gap.answer(.confirm) }
+                Button("I knew it") { gap.answer(.dismiss) }
+            }
+            if gap.canExplain { Button("Explain it") { gap.explain() } }
+            if gap.canShowMoment { Button("Show the moment") { gap.showMoment() } }
+        }
     }
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(concept.name)
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(.title2, weight: .semibold))
                 .foregroundStyle(Color.inkPrimary)
                 .textSelection(.enabled)
             if concept.typedIn {
                 // Provenance, never ranking: styled as a label, not a lesser card.
                 Pip(text: "you added this one", tint: .bucketLearning, wash: .bucketLearningBG)
+            } else if concept.isSpotCheck {
+                Pip(text: "spot check", tint: .bucketLearning, wash: .bucketLearningBG)
             } else if concept.bucket == .open {
                 Pip(text: "waved through", tint: .bucketOpen, wash: .bucketOpenBG)
             }
             Spacer()
             Text(corner)
-                .font(.system(size: 11.5))
+                .font(.system(.subheadline))
                 .foregroundStyle(Color.inkFaint)
         }
     }
@@ -104,7 +133,8 @@ struct GapCardView: View {
                 }
                 .buttonStyle(UnrotButton())
             } else if concept.bucket != .closed {
-                Button("Explain it") { router.check = .init(conceptId: concept.conceptId) }
+                // An ellipsis: it opens the check, which asks for more.
+                Button("Explain it…") { router.check = .init(conceptId: concept.conceptId) }
                     .buttonStyle(UnrotButton(weight: concept.bucket == .learning ? .primary : .secondary))
                 MaterialMenu(concept: concept, store: store)
             }
@@ -114,7 +144,7 @@ struct GapCardView: View {
             }
             Spacer()
             if let encounter = concept.lead, encounter.sessionId != nil {
-                Button("Show the moment →") {
+                Button("Show the moment…") {
                     router.moment = .init(conceptId: concept.conceptId, encounterId: encounter.encounterId)
                 }
                 .buttonStyle(LinkButton())
@@ -159,10 +189,10 @@ struct RefusalNote: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if let title {
-                Text(title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(tint)
+                Text(title).font(.system(.callout, weight: .semibold)).foregroundStyle(tint)
             }
             Text(text)
-                .font(.system(size: 12.5))
+                .font(.system(.callout))
                 .foregroundStyle(Color.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
         }

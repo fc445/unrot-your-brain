@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import sys
 import threading
@@ -35,6 +36,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
+from ..analyse import FILING
 from ..capture import paths
 from ..material import TEXTUAL
 from ..model import describe_failure
@@ -61,6 +63,8 @@ from .schemas import (
     CapturedOut,
     CaptureResultOut,
     ConfigOut,
+    DevWipeOut,
+    DevWipePlanOut,
     EstimateOut,
     PerSessionOut,
     RegenPassOut,
@@ -68,6 +72,7 @@ from .schemas import (
     PendingOut,
     QueueOut,
     SpendDayOut,
+    PipelineOut,
     SpendOut,
     SpendPartOut,
     SpendTotalOut,
@@ -237,10 +242,43 @@ def _build_analyser(meter=None):
         raise _NoModel(str(exc)) from exc
 
 
+def _build_triage(meter=None):
+    """The familiarity judge and its label, or `(None, "none")` when triage is off.
+
+    Never raises, and never stops analysis: triage only holds back what the
+    person very likely already knows, so running without it is analysis as it
+    was, not analysis done wrong.
+    """
+    from ..model import ModelConfig
+    from ..triage import familiarity_from_env
+
+    judge = familiarity_from_env(ModelConfig.from_env(), meter=meter)
+    if judge is None:
+        return None, "none"
+    return judge, judge.model.replace("/", "-")
+
+
 def _can_analyse() -> bool:
     from ..model import ModelConfig
 
     return bool(ModelConfig.from_env().api_key)
+
+
+def _dev_mode() -> bool:
+    """Whether this core was started with dev features on.
+
+    Set only by the Mac app, only in a dev build (`UNROT_CHANNEL=dev`, the
+    `DEV_FEATURES` Swift condition) -- see `UnrotMacApp.swift`'s
+    `environmentProvider`. Not the same question as "is this build of the app
+    a dev build": the app and the core are separate processes, `wipe` is a core
+    operation reachable by anyone who can open this socket, and a CLI or bare
+    `python -m unrot.api` run gets this off by default, which is the only safe
+    default for an operation that can discard real data. Resolved from the
+    environment on every call rather than cached at startup, matching `_home`
+    and `ModelConfig.from_env` -- nothing here assumes the process was launched
+    by the one supervisor that knows to set it.
+    """
+    return os.environ.get("UNROT_DEV_FEATURES") == "1"
 
 
 #: What leaves this machine when the endpoint is not local, one line per kind of
@@ -252,6 +290,9 @@ LEAVES_THIS_MAC = [
     " at once, and never tool output.",
     "Resolution: a candidate term and its one-line paraphrase, with the names of"
     " concepts it might match.",
+    "Familiarity: a candidate term and its paraphrase, with the names and"
+    " paraphrases of up to 40 concepts you said you knew and 40 you confirmed you"
+    " did not. Off with UNROT_FAMILIARITY=off.",
     "The check: your answer and the question it was given to, for grading.",
     "Material: the concept's name and its paraphrases, to write from and to"
     " search for sources.",
@@ -792,6 +833,22 @@ def create_app() -> FastAPI:
             spent_this_week=_total_out(week, local=config.local),
         )
 
+    @app.get("/api/pipeline", response_model=PipelineOut)
+    def pipeline_report(days: int = 7) -> PipelineOut:
+        """Each analysis stage over the last `days`: what it did, what it cost,
+        how long it took, and -- from your answers -- how often it was right.
+
+        The same function `store pipeline` prints. Reads the log; writes nothing.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        from .. import pipeline_metrics
+
+        since = datetime.now(timezone.utc) - timedelta(days=max(days, 1))
+        with stores() as (conn, _raw):
+            report = pipeline_metrics.compute(conn, since=since)
+        return PipelineOut(**report.as_dict())
+
     @app.get("/api/spend", response_model=SpendOut)
     def spend(since: str | None = None) -> SpendOut:
         """What model calls have cost: this week, since install, and per session.
@@ -895,6 +952,7 @@ def create_app() -> FastAPI:
         has switched automatic analysis on, or clicked "Analyse now".
         """
         from ..analyse import analyse_session
+        from ..model import ModelConfig
         from ..spend import Meter
 
         session_id = str((body or {}).get("session_id") or "").strip()
@@ -902,10 +960,14 @@ def create_app() -> FastAPI:
             raise HTTPException(400, "name a session to analyse")
 
         meter = Meter()
+        # How many of this session's chunks go at once. Sessions side by side
+        # are the app's choice: it sends several of these requests together.
+        concurrency = ModelConfig.from_env().concurrency
         try:
             propose, decide, detector_label, resolver_label = _build_analyser(meter)
         except _NoModel as exc:
             raise HTTPException(409, str(exc)) from exc
+        familiar, triage_label = _build_triage(meter)
 
         with _ANALYSING_LOCK:
             if session_id in _ANALYSING:
@@ -929,6 +991,9 @@ def create_app() -> FastAPI:
                             decide=decide,
                             detector_label=detector_label,
                             resolver_label=resolver_label,
+                            judge=familiar,
+                            triage_label=triage_label,
+                            concurrency=concurrency,
                         )
                 except HTTPException:
                     raise
@@ -945,8 +1010,11 @@ def create_app() -> FastAPI:
                         f" {describe_failure(exc)}",
                     ) from exc
                 finally:
-                    # Failed or not, the calls were made and billed.
-                    meter.flush(conn)
+                    # Failed or not, the calls were made and billed. Under
+                    # FILING, so it never contends with another session's filing
+                    # for the write lock.
+                    with FILING:
+                        meter.flush(conn)
                 _log.info(
                     "analysed %s in %.0fs: %d windows, %d flagged",
                     session_id, time.monotonic() - started,
@@ -961,6 +1029,7 @@ def create_app() -> FastAPI:
             session_id=session_id,
             clean=result.clean,
             filed=[r.canonical_name for r in result.resolutions],
+            held_back=[v.candidate.term for v in result.held_back],
             windows_examined=result.windows_examined,
             detector_version=result.detector_version,
             counts={b: sum(1 for c in found if c.bucket == b) for b in read.BUCKETS},
@@ -1055,6 +1124,7 @@ def create_app() -> FastAPI:
         that lands between sessions, and no request that outlives its patience.
         `regenerate` commits before it yields, so stopping leaves the log whole.
         """
+        from ..model import ModelConfig
         from ..regen import regenerate
         from ..spend import Meter
 
@@ -1062,10 +1132,12 @@ def create_app() -> FastAPI:
         if not session_id:
             raise HTTPException(400, "name a session to regenerate")
         meter = Meter()
+        concurrency = ModelConfig.from_env().concurrency
         try:
             propose, decide, detector_label, _ = _build_analyser(meter)
         except _NoModel as exc:
             raise HTTPException(409, str(exc)) from exc
+        familiar, triage_label = _build_triage(meter)
 
         with _ANALYSING_LOCK:
             if session_id in _ANALYSING:
@@ -1082,7 +1154,8 @@ def create_app() -> FastAPI:
                         regenerate(
                             conn, raw,
                             propose=propose, decide=decide, model_label=detector_label,
-                            sessions=[session_id], meter=meter,
+                            sessions=[session_id], meter=meter, concurrency=concurrency,
+                            judge=familiar, triage_label=triage_label,
                         )
                     )
                 except Exception as exc:
@@ -1091,7 +1164,8 @@ def create_app() -> FastAPI:
                         502, f"regenerating {session_id} failed: {describe_failure(exc)}"
                     ) from exc
                 finally:
-                    meter.flush(conn)
+                    with FILING:
+                        meter.flush(conn)
         finally:
             with _ANALYSING_LOCK:
                 _ANALYSING.discard(session_id)
@@ -1102,6 +1176,84 @@ def create_app() -> FastAPI:
             recorded=result.recorded,
             skipped=result.skipped,
             detector_version=result.detector_version,
+        )
+
+    @app.get("/api/dev/wipe/plan", response_model=DevWipePlanOut)
+    def dev_wipe_plan() -> DevWipePlanOut:
+        """What a wipe would discard and rebuild, shown before the confirmation
+        dialog. Calls no model, changes nothing. Dev builds only -- see `_dev_mode`.
+        """
+        from ..model import ModelConfig
+        from ..regen import plan
+
+        if not _dev_mode():
+            raise HTTPException(403, "dev features are off on this core")
+        with stores() as (conn, raw):
+            if raw is None:
+                raise HTTPException(409, "nothing has been captured, so there is nothing to wipe")
+            preview = plan(conn, raw, model_label=ModelConfig.from_env().label)
+            manual = conn.execute(
+                "SELECT count(*) FROM compiled_encounters WHERE source = 'manual'"
+            ).fetchone()[0]
+            explanations = conn.execute(
+                "SELECT count(*) FROM compiled_explanations"
+            ).fetchone()[0]
+        return DevWipePlanOut(
+            # Every captured session, not just `to_run`: a wipe clears
+            # `session_analysed` for all of them, so `already_done` is empty
+            # immediately afterwards and every one of them is due a re-run.
+            sessions_to_rerun=preview.captured,
+            protected_encounters=preview.protected,
+            manual_encounters=manual,
+            explanations=explanations,
+            can_run=_can_analyse(),
+        )
+
+    @app.post("/api/dev/wipe", response_model=DevWipeOut)
+    def dev_wipe(body: dict) -> DevWipeOut:
+        """Back up the store, discard model-generated data, and report what's left
+        to re-run. The rerun itself is not started here -- the caller drives it
+        through the existing `POST /api/regen`, one session per request, the same
+        way any other regeneration does (see `Regenerator.swift`). Splitting the
+        two means a wipe that took the backup and cannot afford the rerun's model
+        calls is still a completed, honest operation rather than a half a wipe
+        stuck mid-request.
+
+        Dev builds only -- see `_dev_mode`. Refuses with 403 on any other core,
+        including one started for the CLI or from a shipped, prod-channel app,
+        because this can discard the only copy of real judgments and
+        explanations that exists.
+        """
+        from ..model import ModelConfig
+        from ..regen import plan, wipe
+        from ..store.backup import backup_store
+
+        if not _dev_mode():
+            raise HTTPException(403, "dev features are off on this core")
+        discard_user_input = bool((body or {}).get("discard_user_input"))
+        with stores() as (conn, raw):
+            if raw is None:
+                raise HTTPException(409, "nothing has been captured, so there is nothing to wipe")
+            # Under FILING, so a session still being filed from before the wipe
+            # lands wholly before it or not at all -- never half in the backup.
+            with FILING:
+                backup_path = backup_store(conn, paths.home(_home()))
+                result = wipe(conn, discard_user_input=discard_user_input)
+            sessions_to_rerun = plan(
+                conn, raw, model_label=ModelConfig.from_env().label
+            ).captured
+        _log.warning(
+            "dev wipe: removed %d encounter(s) and %d other event(s)"
+            " (discard_user_input=%s), backed up to %s",
+            result.encounters_removed, result.other_events_removed,
+            discard_user_input, backup_path,
+        )
+        return DevWipeOut(
+            backup_path=str(backup_path),
+            encounters_removed=result.encounters_removed,
+            other_events_removed=result.other_events_removed,
+            user_input_discarded=result.user_input_discarded,
+            sessions_to_rerun=sessions_to_rerun,
         )
 
     # The built frontend, when there is one. Mounted last so it cannot shadow

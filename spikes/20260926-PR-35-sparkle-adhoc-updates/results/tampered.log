@@ -1,0 +1,21 @@
+2026-09-26T12:25:02Z build=1 pid=7357 launched from /Applications/SparkleProbe.app
+2026-09-26T12:25:02Z build=1 pid=7357 signature: cdhash=cabcf34714217537b8ccc922d496a4f96b77ef07 team=none adhoc=true
+2026-09-26T12:25:02Z build=1 pid=7357 signature: valid=true status=0
+2026-09-26T12:25:02Z build=1 pid=7357 quarantine: none on /Applications/SparkleProbe.app
+2026-09-26T12:25:02Z build=1 pid=7357 sparkle: allowedChannels=[]
+2026-09-26T12:25:02Z build=1 pid=7357 sparkle: allowedChannels=[]
+2026-09-26T12:25:02Z build=1 pid=7357 driver: checking
+2026-09-26T12:25:02Z build=1 pid=7357 keychain: SecItemCopyMatching returned -25293 after 0.01s
+2026-09-26T12:25:02Z build=1 pid=7357 keychain: WOULD PROMPT (status -25293): this build is not on the item's access list
+2026-09-26T12:25:02Z build=1 pid=7357 sparkle: appcast loaded, items=["2[default]"]
+2026-09-26T12:25:02Z build=1 pid=7357 sparkle: allowedChannels=[]
+2026-09-26T12:25:02Z build=1 pid=7357 sparkle: found update build=2 channel=default
+2026-09-26T12:25:02Z build=1 pid=7357 driver: update found build=2 -> install
+2026-09-26T12:25:02Z build=1 pid=7357 driver: downloading
+2026-09-26T12:25:02Z build=1 pid=7357 driver: extracting
+2026-09-26T12:25:03Z build=1 pid=7357 driver: ERROR The update is improperly signed and could not be validated. Please try again later or contact the app developer.
+2026-09-26T12:25:03Z build=1 pid=7357 DONE updater error
+--- after: installed build 1
+Signature=adhoc
+TeamIdentifier=not set
+--- after: xattrs on the installed app: com.apple.provenance 

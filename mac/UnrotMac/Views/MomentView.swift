@@ -30,19 +30,21 @@ struct MomentSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // A sheet is closed, not navigated back from: Done, trailing, on
+            // Return -- and Escape, as every sheet closes.
             HStack(spacing: 10) {
-                Button("← Back", action: onClose)
-                    .buttonStyle(UnrotButton())
-                    .keyboardShortcut(.cancelAction)
                 Text(concept?.name ?? "")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(.title3, weight: .semibold))
                 Spacer()
                 Label("Local only", systemImage: "lock")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(.system(.subheadline, weight: .medium))
                     .foregroundStyle(Color.inkSoft)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 4)
                     .overlay(Capsule().stroke(Color.ruleStrong, lineWidth: 1))
+                Button("Done", action: onClose)
+                    .buttonStyle(UnrotButton(weight: .primary))
+                    .keyboardShortcut(.defaultAction)
             }
             .padding(.horizontal, 16)
             .frame(height: 52)
@@ -57,6 +59,7 @@ struct MomentSheet: View {
         }
         .frame(width: 960, height: 640)
         .background(Color.paper)
+        .onExitCommand(perform: onClose)
         .task {
             do {
                 moment = try await store.moment(encounterId: request.encounterId)
@@ -77,7 +80,7 @@ struct MomentSheet: View {
                 .foregroundStyle(Color.inkPrimary)
             if let meta {
                 Text(meta)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(.subheadline, design: .monospaced))
                     .foregroundStyle(Color.inkFaint)
             }
             ScrollView {
@@ -88,7 +91,7 @@ struct MomentSheet: View {
                         }
                     } else if let reason = moment?.reason ?? failure {
                         Text(reason)
-                            .font(.system(size: 13.5))
+                            .font(.system(.body))
                             .foregroundStyle(Color.inkSoft)
                     } else {
                         ProgressView().controlSize(.small)
@@ -125,16 +128,16 @@ struct MomentSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             if let concept, concept.bucket == .open, let encounter = concept.unanswered {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Do you know it?").font(.system(size: 14, weight: .semibold))
+                    Text("Do you know it?").font(.system(.title3, weight: .semibold))
                     Text("Saying you didn't doesn't close the gap. It starts learning it.")
-                        .font(.system(size: 12.5))
+                        .font(.system(.callout))
                         .foregroundStyle(Color.inkSoft)
                     Button("I didn't know this") { answer(concept, encounter, .confirm) }
                         .buttonStyle(UnrotButton(weight: .primary, fill: true))
                     Button("I knew it — bad flag") { answer(concept, encounter, .dismiss) }
                         .buttonStyle(UnrotButton(fill: true))
                     Text("A bad flag is kept, not deleted. It is what the detector gets tuned against.")
-                        .font(.system(size: 11))
+                        .font(.system(.subheadline))
                         .foregroundStyle(Color.inkFaint)
                 }
                 .padding(16)
@@ -144,9 +147,9 @@ struct MomentSheet: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Label("Why this screen is Mac-only", systemImage: "lock")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(.body, weight: .semibold))
                 Text("This replays unrot's own retained copy, not ~/.claude, which may have rotated the original away. Raw transcripts never sync and never upload, so no other device can ever show this.")
-                    .font(.system(size: 12))
+                    .font(.system(.callout))
                     .foregroundStyle(Color.inkSoft)
                     .fixedSize(horizontal: false, vertical: true)
                 if let copy {
@@ -194,10 +197,10 @@ private struct TurnView: View {
             if isSignal {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(turn.text)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(.title3, weight: .semibold))
                         .foregroundStyle(Color.inkPrimary)
                     Text("No clarifying question. This turn is the signal — the term was load-bearing and it went by unexamined.")
-                        .font(.system(size: 11.5))
+                        .font(.system(.subheadline))
                         .foregroundStyle(Color.bucketOpen)
                 }
                 .padding(12)
@@ -206,7 +209,7 @@ private struct TurnView: View {
                 .overlay(alignment: .leading) { Rectangle().fill(Color.bucketOpen).frame(width: 3) }
             } else {
                 Text(highlighted)
-                    .font(.system(size: 13.5))
+                    .font(.system(.body))
                     .foregroundStyle(turn.role == "user" ? Color.inkPrimary : Color.inkSoft)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -230,7 +233,7 @@ private struct TurnView: View {
         while let range = text[searchFrom...].range(of: term, options: .caseInsensitive) {
             text[range].backgroundColor = Color.bucketOpenBG
             text[range].foregroundColor = Color.inkPrimary
-            text[range].font = .system(size: 13.5, weight: .semibold)
+            text[range].font = .system(.body, weight: .semibold)
             searchFrom = range.upperBound
         }
         return text
