@@ -46,6 +46,7 @@ from collections.abc import Iterator
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 
+from ..pipeline import FILING, MAX_CONCURRENCY
 from .wipe import WipeResult, wipe  # noqa: F401 -- re-exported for `from ..regen import wipe`
 
 #: Events regeneration is allowed to delete. All are `system` events, which S5
@@ -201,6 +202,7 @@ def regenerate(
     meter=None,
     judge=None,
     triage_label: str = "none",
+    concurrency: int = MAX_CONCURRENCY,
 ) -> Iterator[SessionPass]:
     """Re-run the detector over history, one session at a time.
 
@@ -212,6 +214,11 @@ def regenerate(
     With a `meter`, each session's model calls are attributed to it and written
     down with the session's commit. A session that fails leaves its calls in
     the meter; the caller flushes them.
+
+    The writes are made under `analyse.FILING` -- dropping here, filing in the
+    graph's own nodes -- so the app can regenerate several sessions at once:
+    proposing runs side by side, and the writes happen one session at a time.
+    `concurrency` is how many of this session's chunks may be proposed at once.
     """
     from ..pipeline import Deps, run_session
     from ..detector import detector_version as version_of
@@ -226,25 +233,26 @@ def regenerate(
             yield SessionPass(session_id, 0, 0, 0, version, skipped=True)
             continue
 
-        protected = judged_in(conn, session_id)
-        removed = _drop_stale(conn, session_id, protected)
-        conn.execute(
-            "DELETE FROM events WHERE event_type = 'session_analysed'"
-            "   AND json_extract(payload, '$.session_id') = ?",
-            (session_id,),
-        )
-        # Triage's record goes too -- except where the person has answered the
-        # encounter it names. That record is what makes an answered spot check a
-        # spot check, and the answer is the one measure of triage's hold-backs.
-        conn.execute(
-            "DELETE FROM events WHERE event_type = 'familiarity_judged'"
-            "   AND json_extract(payload, '$.session_id') = ?"
-            "   AND coalesce(json_extract(payload, '$.encounter_id'), '') NOT IN"
-            "       (SELECT value FROM json_each(?))",
-            (session_id, json.dumps(sorted(protected))),
-        )
-        conn.commit()
-        compile_state(conn)
+        with FILING:
+            protected = judged_in(conn, session_id)
+            removed = _drop_stale(conn, session_id, protected)
+            conn.execute(
+                "DELETE FROM events WHERE event_type = 'session_analysed'"
+                "   AND json_extract(payload, '$.session_id') = ?",
+                (session_id,),
+            )
+            # Triage's record goes too -- except where the person has answered the
+            # encounter it names. That record is what makes an answered spot check a
+            # spot check, and the answer is the one measure of triage's hold-backs.
+            conn.execute(
+                "DELETE FROM events WHERE event_type = 'familiarity_judged'"
+                "   AND json_extract(payload, '$.session_id') = ?"
+                "   AND coalesce(json_extract(payload, '$.encounter_id'), '') NOT IN"
+                "       (SELECT value FROM json_each(?))",
+                (session_id, json.dumps(sorted(protected))),
+            )
+            conn.commit()
+            compile_state(conn)
 
         with meter.about(session_id=session_id) if meter else nullcontext():
             # The same graph live analysis runs -- triage included, so a
@@ -259,15 +267,22 @@ def regenerate(
                     detector_label=model_label, resolver_label=model_label,
                     max_candidates=max_candidates, judge=judge, triage_label=triage_label,
                     protected=frozenset(protected), recompile=False,
+                    concurrency=concurrency,
                 ),
                 run_name="regenerate session",
             )
             recorded = len(run.resolutions)
 
-        conn.commit()
-        if meter is not None:
-            meter.flush(conn)
-        compile_state(conn)
+        # `protected` was read before detection, as it always was: this session's
+        # unjudged encounters were dropped above, so there is nothing new for a
+        # judgment made meanwhile to land on. The graph's writing nodes held
+        # FILING for themselves; the commit, the meter and the compile hold it
+        # here.
+        with FILING:
+            conn.commit()
+            if meter is not None:
+                meter.flush(conn)
+            compile_state(conn)
 
         yield SessionPass(
             session_id=session_id,

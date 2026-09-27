@@ -117,6 +117,7 @@ def _cmd_run(args) -> int:
                     propose=propose,
                     decide=decide,
                     detector_label=config.label,
+                    concurrency=config.concurrency,
                     resolver_label=model_label,
                     max_candidates=args.max,
                     judge=judge,

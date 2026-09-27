@@ -36,6 +36,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
+from ..analyse import FILING
 from ..capture import paths
 from ..material import TEXTUAL
 from ..model import describe_failure
@@ -951,6 +952,7 @@ def create_app() -> FastAPI:
         has switched automatic analysis on, or clicked "Analyse now".
         """
         from ..analyse import analyse_session
+        from ..model import ModelConfig
         from ..spend import Meter
 
         session_id = str((body or {}).get("session_id") or "").strip()
@@ -958,6 +960,9 @@ def create_app() -> FastAPI:
             raise HTTPException(400, "name a session to analyse")
 
         meter = Meter()
+        # How many of this session's chunks go at once. Sessions side by side
+        # are the app's choice: it sends several of these requests together.
+        concurrency = ModelConfig.from_env().concurrency
         try:
             propose, decide, detector_label, resolver_label = _build_analyser(meter)
         except _NoModel as exc:
@@ -988,6 +993,7 @@ def create_app() -> FastAPI:
                             resolver_label=resolver_label,
                             judge=familiar,
                             triage_label=triage_label,
+                            concurrency=concurrency,
                         )
                 except HTTPException:
                     raise
@@ -1004,8 +1010,11 @@ def create_app() -> FastAPI:
                         f" {describe_failure(exc)}",
                     ) from exc
                 finally:
-                    # Failed or not, the calls were made and billed.
-                    meter.flush(conn)
+                    # Failed or not, the calls were made and billed. Under
+                    # FILING, so it never contends with another session's filing
+                    # for the write lock.
+                    with FILING:
+                        meter.flush(conn)
                 _log.info(
                     "analysed %s in %.0fs: %d windows, %d flagged",
                     session_id, time.monotonic() - started,
@@ -1115,6 +1124,7 @@ def create_app() -> FastAPI:
         that lands between sessions, and no request that outlives its patience.
         `regenerate` commits before it yields, so stopping leaves the log whole.
         """
+        from ..model import ModelConfig
         from ..regen import regenerate
         from ..spend import Meter
 
@@ -1122,6 +1132,7 @@ def create_app() -> FastAPI:
         if not session_id:
             raise HTTPException(400, "name a session to regenerate")
         meter = Meter()
+        concurrency = ModelConfig.from_env().concurrency
         try:
             propose, decide, detector_label, _ = _build_analyser(meter)
         except _NoModel as exc:
@@ -1143,7 +1154,7 @@ def create_app() -> FastAPI:
                         regenerate(
                             conn, raw,
                             propose=propose, decide=decide, model_label=detector_label,
-                            sessions=[session_id], meter=meter,
+                            sessions=[session_id], meter=meter, concurrency=concurrency,
                             judge=familiar, triage_label=triage_label,
                         )
                     )
@@ -1153,7 +1164,8 @@ def create_app() -> FastAPI:
                         502, f"regenerating {session_id} failed: {describe_failure(exc)}"
                     ) from exc
                 finally:
-                    meter.flush(conn)
+                    with FILING:
+                        meter.flush(conn)
         finally:
             with _ANALYSING_LOCK:
                 _ANALYSING.discard(session_id)
@@ -1201,7 +1213,7 @@ def create_app() -> FastAPI:
     def dev_wipe(body: dict) -> DevWipeOut:
         """Back up the store, discard model-generated data, and report what's left
         to re-run. The rerun itself is not started here -- the caller drives it
-        through the existing `POST /api/regen`, one session at a time, the same
+        through the existing `POST /api/regen`, one session per request, the same
         way any other regeneration does (see `Regenerator.swift`). Splitting the
         two means a wipe that took the backup and cannot afford the rerun's model
         calls is still a completed, honest operation rather than a half a wipe
@@ -1222,8 +1234,11 @@ def create_app() -> FastAPI:
         with stores() as (conn, raw):
             if raw is None:
                 raise HTTPException(409, "nothing has been captured, so there is nothing to wipe")
-            backup_path = backup_store(conn, paths.home(_home()))
-            result = wipe(conn, discard_user_input=discard_user_input)
+            # Under FILING, so a session still being filed from before the wipe
+            # lands wholly before it or not at all -- never half in the backup.
+            with FILING:
+                backup_path = backup_store(conn, paths.home(_home()))
+                result = wipe(conn, discard_user_input=discard_user_input)
             sessions_to_rerun = plan(
                 conn, raw, model_label=ModelConfig.from_env().label
             ).captured

@@ -1,8 +1,9 @@
 //  Regenerator.swift
 //  UnrotMac
 //
-//  Re-running the detector over history from the app: the plan first, then one
-//  session at a time, stoppable between any two.
+//  Re-running the detector over history from the app: the plan first, then
+//  several sessions at once (`runConcurrently`). Stopping starts no more; the
+//  ones in flight finish.
 
 import Foundation
 import Observation
@@ -21,10 +22,14 @@ final class Regenerator {
 
     private let client: UnrotClient
     private let store: SurfaceStore
+    /// How many sessions to regenerate at once, read when a pass starts.
+    private let concurrency: @MainActor () -> Int
 
-    init(client: UnrotClient, store: SurfaceStore) {
+    init(client: UnrotClient, store: SurfaceStore,
+         concurrency: @escaping @MainActor () -> Int = { 1 }) {
         self.client = client
         self.store = store
+        self.concurrency = concurrency
     }
 
     func refresh() async {
@@ -46,8 +51,10 @@ final class Regenerator {
         runner = Task { [weak self] in
             guard let self else { return }
             self.progress = (0, sessions.count)
-            for (index, session) in sessions.enumerated() {
-                if Task.isCancelled { break }
+            await runConcurrently(
+                sessions, atMost: self.concurrency(), proceed: { !Task.isCancelled }
+            ) { [weak self] session in
+                guard let self else { return false }
                 do {
                     let pass = try await self.client.regen(sessionId: session)
                     self.totals.protected += pass.protected
@@ -55,12 +62,15 @@ final class Regenerator {
                     self.totals.recorded += pass.recorded
                 } catch let error as APIError {
                     self.lastError = error.message
-                    break
+                    return false
                 } catch {
                     self.lastError = "Regeneration stopped."
-                    break
+                    return false
                 }
-                self.progress = (index + 1, sessions.count)
+                if let progress = self.progress {
+                    self.progress = (progress.done + 1, progress.total)
+                }
+                return true
             }
             self.progress = nil
             self.runner = nil

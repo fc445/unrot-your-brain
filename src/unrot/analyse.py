@@ -19,8 +19,11 @@ from datetime import datetime, timezone
 
 from .detector.detect import DEFAULT_MAX_CANDIDATES
 from .resolver import Resolution
-from .pipeline import Deps, run_session
+# FILING is re-exported: the API and regeneration take it from here. It lives
+# with the graph, whose writing nodes hold it.
+from .pipeline import FILING, MAX_CONCURRENCY, Deps, run_session  # noqa: F401
 from .triage import Verdict
+
 
 
 @dataclass
@@ -50,6 +53,7 @@ def analyse_session(
     max_candidates: int = DEFAULT_MAX_CANDIDATES,
     judge=None,
     triage_label: str = "none",
+    concurrency: int = MAX_CONCURRENCY,
 ) -> Analysis:
     """Detect, resolve every candidate, and record that the session was examined.
 
@@ -72,6 +76,7 @@ def analyse_session(
             conn=conn, raw=raw, propose=propose, decide=decide,
             detector_label=detector_label, resolver_label=resolver_label,
             max_candidates=max_candidates, judge=judge, triage_label=triage_label,
+            concurrency=concurrency,
         ),
     )
     return Analysis(

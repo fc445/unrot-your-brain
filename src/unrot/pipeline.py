@@ -11,6 +11,11 @@ the detector funnel (`docs/handover-20260926-detector-rethink.md`) goes: each
 later layer is another node between `rank` and `resolve`, adding labels to the
 state rather than deleting candidates from it.
 
+**Several sessions can run at once** (the app sends several requests; see
+`FILING`). Each run has its own connections, and the nodes that write -- triage,
+resolve, record -- hold `FILING`, so filing happens one session at a time while
+the slow part, proposing, runs side by side.
+
 **The one rule the shape has to keep: nodes that touch the store run alone.**
 LangGraph runs a step with a single task on the calling thread and fans a
 multi-task step out to worker threads. SQLite connections here are
@@ -29,6 +34,7 @@ from __future__ import annotations
 
 import operator
 import sqlite3
+import threading
 from dataclasses import dataclass, field, replace
 from functools import cache
 from typing import Annotated, Any, TypedDict
@@ -46,10 +52,31 @@ from .resolver import (
 )
 from .triage import Triage, Verdict, triage
 
-#: How many chunk calls may be in flight at once. Enough that a long session
-#: stops being N round trips back to back; few enough not to trip a provider's
-#: rate limit on the first long session someone analyses.
+#: How many chunk calls may be in flight at once, unless a caller says
+#: otherwise (`Deps.concurrency`, from `UNROT_CONCURRENCY` in the core and the
+#: CLIs). Enough that a long session stops being N round trips back to back;
+#: few enough not to trip a provider's rate limit on the first long session
+#: someone analyses.
 MAX_CONCURRENCY = 4
+
+#: Held while a run writes to the store, so several sessions can be analysed or
+#: regenerated at once without their filing interleaving.
+#:
+#: Proposing is where the time goes, and it is safe side by side: it calls a
+#: model and touches no store. Filing is not. Each candidate's resolution reads
+#: the compiled concepts, may ask a model whether the term is one already known,
+#: and appends -- so two sessions that both met "idempotent" and resolved at the
+#: same moment would each find no concept and each create one. The writing
+#: nodes (triage, resolve, record) each hold this for their whole step, so one
+#: session's resolutions all land, recompiled, before another's start. Filing is
+#: a small share of the time (about a sixth, measured), so serialising it costs
+#: little. Regeneration's drop-stale step, meter flushes and the dev wipe hold it
+#: too.
+#:
+#: In-process only. That is enough: one core per socket (`prepare_socket`), and
+#: the CLIs run one session at a time. Not re-entrant: nothing that holds it
+#: runs the graph.
+FILING = threading.Lock()
 
 
 @dataclass
@@ -73,6 +100,9 @@ class Deps:
     recompile: bool = True
     #: Characters per detector call. Smaller means more, parallel, calls.
     chunk_budget: int = 40_000
+    #: How many of this session's chunk calls may be in flight at once. 1 for a
+    #: local endpoint, which answers one at a time anyway.
+    concurrency: int = MAX_CONCURRENCY
 
 
 class State(TypedDict, total=False):
@@ -152,33 +182,38 @@ def _triage(state: State, runtime) -> dict:
     result = state["result"]
     if deps.judge is None:
         return {"emitted": result.emitted, "held_back": []}
-    triaged = triage_gaps(
-        deps.conn, result.ranked, judge=deps.judge,
-        max_candidates=deps.max_candidates, model_label=deps.triage_label,
-    )
+    # Under FILING: triage reads what the person knows, which another session's
+    # filing changes, and records each judgment it makes.
+    with FILING:
+        triaged = triage_gaps(
+            deps.conn, result.ranked, judge=deps.judge,
+            max_candidates=deps.max_candidates, model_label=deps.triage_label,
+        )
     return {"emitted": triaged.emitted, "held_back": triaged.held_back}
 
 
 def _resolve(state: State, runtime) -> dict:
     deps = runtime.context
     resolutions = []
-    for candidate in state["emitted"]:
-        submission = from_candidate(candidate)
-        # Regeneration's conservative rule, at the one line where it is
-        # enforced: the user has already said something about this encounter,
-        # and a fresh `encounter_recorded` would supersede the paraphrase they
-        # judged. Live analysis passes no protected ids.
-        if fingerprint(submission) in deps.protected:
-            continue
-        # One at a time, and with live analysis recompiling after each: the
-        # next candidate's resolution reads compiled state, and a term met twice
-        # in a session must find the concept the first mention just created.
-        resolutions.append(
-            resolve(
-                deps.conn, submission, decide=deps.decide,
-                model_label=deps.resolver_label, recompile=deps.recompile,
+    with FILING:
+        for candidate in state["emitted"]:
+            submission = from_candidate(candidate)
+            # Regeneration's conservative rule, at the one line where it is
+            # enforced: the user has already said something about this
+            # encounter, and a fresh `encounter_recorded` would supersede the
+            # paraphrase they judged. Live analysis passes no protected ids.
+            if fingerprint(submission) in deps.protected:
+                continue
+            # One at a time, and with live analysis recompiling after each: the
+            # next candidate's resolution reads compiled state, and a term met
+            # twice in a session must find the concept the first mention just
+            # created.
+            resolutions.append(
+                resolve(
+                    deps.conn, submission, decide=deps.decide,
+                    model_label=deps.resolver_label, recompile=deps.recompile,
+                )
             )
-        )
     return {"resolutions": resolutions}
 
 
@@ -186,16 +221,17 @@ def _record(state: State, runtime) -> dict:
     """Written last, so a failure anywhere above leaves the session pending."""
     deps = runtime.context
     result, emitted = state["result"], state["emitted"]
-    # What was filed, not what the detector's budget picked: with triage the two
-    # differ, and export joins a user's verdict to the `emitted` flag.
-    record_detection(deps.conn, replace(result, emitted=emitted), max_candidates=deps.max_candidates)
-    record_analysis(
-        deps.conn,
-        state["session_id"],
-        candidates_found=len(emitted),
-        detector_version=result.detector_version,
-        recompile=deps.recompile,
-    )
+    with FILING:
+        # What was filed, not what the detector's budget picked: with triage the
+        # two differ, and export joins a user's verdict to the `emitted` flag.
+        record_detection(deps.conn, replace(result, emitted=emitted), max_candidates=deps.max_candidates)
+        record_analysis(
+            deps.conn,
+            state["session_id"],
+            candidates_found=len(emitted),
+            detector_version=result.detector_version,
+            recompile=deps.recompile,
+        )
     return {}
 
 
@@ -247,7 +283,7 @@ def run_session(session_id: str, deps: Deps, *, run_name: str = "analyse session
                 "resolver": deps.resolver_label,
                 "triage": deps.triage_label,
             },
-            "max_concurrency": MAX_CONCURRENCY,
+            "max_concurrency": deps.concurrency,
         },
         context=deps,
     )
