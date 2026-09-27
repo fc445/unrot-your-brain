@@ -1,9 +1,11 @@
 //  RootView.swift
 //  UnrotMac
 //
-//  The window, after the Main and Silence artboards: a title bar carrying the
-//  wordmark and the one ambient status, a sidebar of the three lists, and the
-//  page.
+//  The window: a sidebar of the three lists, and a page for whichever one is
+//  selected. Both are the system's -- a `NavigationSplitView`, a sidebar
+//  `List`, and a toolbar in the window frame -- so hiding the sidebar, the
+//  window's active and inactive looks, and the View menu's Show Sidebar are
+//  the Mac's rather than ours to keep in step.
 //
 //  Nothing here decides a bucket, a surface state, a headline or a next step --
 //  those arrive from /api/surface. What this file decides is layout, focus, and
@@ -17,7 +19,7 @@ struct RootView: View {
     @Bindable var store: SurfaceStore
     let quick: QuickAccept
     let watcher: Watcher
-    var router: Router
+    @Bindable var router: Router
     var addGap: () -> Void = {}
     /// Present until the first run is finished; nothing is captured before then.
     var onboarding: Onboarding? = nil
@@ -25,6 +27,9 @@ struct RootView: View {
 
     /// The card K and D answer. Arrow keys move it; it defaults to the top.
     @State private var focused: String?
+    /// Whether the page, rather than the sidebar, has the keyboard. K and D
+    /// only mean something to the page, so it starts with it.
+    @FocusState private var pageHasKeyboard: Bool
     @Environment(\.undoManager) private var undoManager
 
     private var waiting: [Concept] { store.concepts(in: .open) }
@@ -34,51 +39,35 @@ struct RootView: View {
     private var focusedConcept: Concept? {
         waiting.first { $0.conceptId == focused } ?? waiting.first
     }
+    private var list: BucketSection {
+        BucketSection.all.first { $0.bucket == router.list } ?? BucketSection.all[0]
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            TitleBar(watcher: watcher, core: core, settingUp: settingUp, addGap: addGap)
-            Divider()
+        Group {
             if let onboarding, settingUp, let modelSettings {
                 FirstRunView(onboarding: onboarding, watcher: watcher, settings: modelSettings)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .background(Color.paper)
+                    .navigationTitle("Welcome to unrot")
             } else {
-                HStack(spacing: 0) {
-                    Sidebar(store: store, core: core)
-                    Divider()
+                NavigationSplitView {
+                    Sidebar(store: store, selection: $router.list)
+                        .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 280)
+                } detail: {
                     page
+                        .navigationSubtitle(meta ?? "")
+                        .toolbar { toolbar }
                 }
+                .navigationTitle(list.title)
             }
         }
-        .background(Color.paper)
         .task {
             await store.load()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
                 guard core.status.isUp else { continue }
                 await store.load()
-            }
-        }
-        // K and D answer the focused card; the arrows move focus. Handled here
-        // rather than as keyboard shortcuts, because a shortcut on a bare
-        // letter fires even while a text editor has focus.
-        .focusable()
-        .focusEffectDisabled()
-        .onKeyPress(keys: [.upArrow, .downArrow]) { press in
-            move(press.key == .upArrow ? -1 : 1)
-            return .handled
-        }
-        .onKeyPress(characters: CharacterSet(charactersIn: "dDkK"), phases: .down) { press in
-            guard let concept = focusedConcept, let encounter = concept.unanswered else { return .ignored }
-            let verdict: Verdict = press.characters.lowercased() == "d" ? .confirm : .dismiss
-            Task { await quick.answer(concept: concept, encounter: encounter, verdict) }
-            return .handled
-        }
-        .overlay(alignment: .bottom) {
-            if let answer = quick.undoable {
-                UndoStrip(answer: answer) { Task { await quick.undo() } }
-                    .frame(maxWidth: 440)
-                    .shadow(color: .black.opacity(0.1), radius: 10, y: 3)
-                    .padding(.bottom, 18)
             }
         }
         .onChange(of: quick.undoable) { _, answer in
@@ -89,11 +78,29 @@ struct RootView: View {
             }
             undoManager?.setActionName(answer.verdict == .confirm ? "“Didn't Know This”" : "“Knew It”")
         }
-        .sheet(item: Binding(get: { router.moment }, set: { router.moment = $0 })) { request in
+        .sheet(item: $router.moment) { request in
             MomentSheet(request: request, store: store, quick: quick) { router.moment = nil }
         }
-        .sheet(item: Binding(get: { router.check }, set: { router.check = $0 })) { request in
+        .sheet(item: $router.check) { request in
             CheckSheet(conceptId: request.conceptId, store: store) { router.check = nil }
+        }
+    }
+
+    // MARK: - Toolbar
+
+    /// The one ambient status and the one action. Adding a gap is also File ›
+    /// Add a Gap… (⌘N), which is where its shortcut lives: the toolbar can be
+    /// hidden, the menu bar cannot.
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .status) {
+            StatusPill(watcher: watcher, core: core, bare: true)
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button(action: addGap) {
+                Label("Add a Gap…", systemImage: "plus")
+            }
+            .help("Add a gap you noticed yourself")
         }
     }
 
@@ -108,14 +115,9 @@ struct RootView: View {
     private var page: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if let surface = store.surface, store.state != .failed {
-                    Text(meta(surface))
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color.inkFaint)
-                        .padding(.bottom, 6)
-                }
-
                 if let empty = store.emptyState {
+                    // Every list is empty, or the core is unreachable: a fact
+                    // about the whole app, so it reads the same on every list.
                     EmptyStateView(
                         state: empty,
                         headline: empty == .failed ? "unrot-core isn't running" : store.surface?.headline ?? "",
@@ -126,43 +128,11 @@ struct RootView: View {
                         action: action(for: empty)
                     )
                 } else if let surface = store.surface {
-                    Text(surface.headline)
-                        .font(.display(32))
-                        .foregroundStyle(Color.inkPrimary)
-                    Text(surface.detail)
-                        .font(.system(size: 13.5))
-                        .foregroundStyle(Color.inkSoft)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 4)
-
-                    QueueBar(watcher: watcher).padding(.top, 14)
-
+                    header(surface)
                     if surface.fixtures > 0 {
                         FixturesNotice(count: surface.fixtures).padding(.top, 14)
                     }
-
-                    ForEach(store.populated) { section in
-                        SectionHeader(section: section, count: surface.count(section.bucket))
-                            .padding(.top, 26)
-                            .padding(.bottom, 10)
-                            .id(section.bucket.rawValue)
-                        if section.bucket == .closed {
-                            ClosedChips(concepts: store.concepts(in: .closed))
-                        } else {
-                            VStack(spacing: 10) {
-                                ForEach(store.concepts(in: section.bucket)) { concept in
-                                    GapCardView(
-                                        concept: concept,
-                                        store: store,
-                                        quick: quick,
-                                        router: router,
-                                        isFocused: concept.conceptId == focusedConcept?.conceptId
-                                    )
-                                    .onTapGesture { if section.bucket == .open { focused = concept.conceptId } }
-                                }
-                            }
-                        }
-                    }
+                    contents.padding(.top, 22)
                 } else if !store.hasLoadedOnce {
                     Text(core.status.isUp ? "Reading the log…" : "Starting the core…")
                         .font(.system(size: 13))
@@ -176,10 +146,86 @@ struct RootView: View {
             .frame(maxWidth: 820, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .background(Color.paper)
+        .overlay(alignment: .bottom) {
+            if let answer = quick.undoable {
+                UndoStrip(answer: answer) { Task { await quick.undo() } }
+                    .frame(maxWidth: 440)
+                    .shadow(color: .black.opacity(0.1), radius: 10, y: 3)
+                    .padding(.bottom, 18)
+            }
+        }
+        // K and D answer the focused card; the arrows move focus. Handled here
+        // rather than as keyboard shortcuts, because a shortcut on a bare
+        // letter fires even while a text editor has focus. Only Waiting on you
+        // has cards to answer, so everywhere else the keys fall through.
+        .focusable()
+        .focusEffectDisabled()
+        .focused($pageHasKeyboard)
+        .onAppear { pageHasKeyboard = true }
+        .onKeyPress(keys: [.upArrow, .downArrow]) { press in
+            guard list.bucket == .open else { return .ignored }
+            move(press.key == .upArrow ? -1 : 1)
+            return .handled
+        }
+        .onKeyPress(characters: CharacterSet(charactersIn: "dDkK"), phases: .down) { press in
+            guard list.bucket == .open,
+                  let concept = focusedConcept, let encounter = concept.unanswered else { return .ignored }
+            let verdict: Verdict = press.characters.lowercased() == "d" ? .confirm : .dismiss
+            Task { await quick.answer(concept: concept, encounter: encounter, verdict) }
+            return .handled
+        }
     }
 
-    /// "31 of 34 sessions examined · last activity Thursday 19:42".
-    private func meta(_ surface: Surface) -> String {
+    /// Waiting on you keeps the server's headline, which is written for it;
+    /// the other two lists say what they hold.
+    @ViewBuilder
+    private func header(_ surface: Surface) -> some View {
+        Text(list.bucket == .open ? surface.headline : list.title)
+            .font(.display(32))
+            .foregroundStyle(Color.inkPrimary)
+        Text(list.bucket == .open ? surface.detail : list.note + ".")
+            .font(.system(size: 13.5))
+            .foregroundStyle(Color.inkSoft)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 4)
+        if list.bucket == .open {
+            QueueBar(watcher: watcher).padding(.top, 14)
+        }
+    }
+
+    @ViewBuilder
+    private var contents: some View {
+        let concepts = store.concepts(in: list.bucket)
+        if concepts.isEmpty {
+            // Waiting on you's headline already says it is empty.
+            if list.bucket != .open { EmptyList(bucket: list.bucket) }
+        } else if list.bucket == .closed {
+            ClosedChips(concepts: concepts)
+        } else {
+            VStack(spacing: 10) {
+                ForEach(concepts) { concept in
+                    GapCardView(
+                        concept: concept,
+                        store: store,
+                        quick: quick,
+                        router: router,
+                        isFocused: list.bucket == .open && concept.conceptId == focusedConcept?.conceptId
+                    )
+                    .onTapGesture {
+                        guard list.bucket == .open else { return }
+                        focused = concept.conceptId
+                        pageHasKeyboard = true
+                    }
+                }
+            }
+        }
+    }
+
+    /// "31 of 34 sessions examined · last activity Thursday 19:42", under the
+    /// window title. Nothing when there is nothing true to say.
+    private var meta: String? {
+        guard let surface = store.surface, store.state != .failed else { return nil }
         let capture = surface.capture
         var line = "\(capture.sessionsAnalysed) of \(capture.sessionsAnalysable ?? capture.sessions) sessions examined"
         if let last = Dates.recent(surface.capture.lastActivity) { line += " · last activity \(last)" }
@@ -204,111 +250,68 @@ struct RootView: View {
     }
 }
 
-// MARK: - Title bar
-
-private struct TitleBar: View {
-    let watcher: Watcher
-    let core: CoreProcess
-    let settingUp: Bool
-    let addGap: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            // Room for the traffic lights, which sit in this bar.
-            Spacer().frame(width: 64)
-            Text("unrot").font(.display(19)).foregroundStyle(Color.inkPrimary)
-            Spacer()
-            if !settingUp {
-                StatusPill(watcher: watcher, core: core)
-                Button(action: addGap) {
-                    Label("Add a gap", systemImage: "plus")
-                }
-                .buttonStyle(UnrotButton())
-                .keyboardShortcut("n")
-            }
-        }
-        .padding(.horizontal, 14)
-        .frame(height: 52)
-        .background(Color.sunk)
-    }
-}
-
 // MARK: - Sidebar
 
 private struct Sidebar: View {
     let store: SurfaceStore
-    let core: CoreProcess
+    @Binding var selection: Bucket?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Eyebrow(text: "Lists").padding(.horizontal, 10).padding(.bottom, 4)
+        List(selection: $selection) {
             ForEach(BucketSection.all) { section in
-                HStack(spacing: 9) {
-                    Circle().fill(section.bucket.tint).frame(width: 8, height: 8)
-                    Text(section.title)
-                        .font(.system(size: 13, weight: store.surface?.count(section.bucket) ?? 0 > 0 && section.bucket == .open ? .semibold : .regular))
-                    Spacer()
-                    Text("\(store.surface?.count(section.bucket) ?? 0)")
-                        .font(.system(size: 12).monospacedDigit())
-                        .foregroundStyle(Color.inkFaint)
-                }
-                .foregroundStyle(Color.inkPrimary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(section.bucket == .open && (store.surface?.count(.open) ?? 0) > 0 ? Color.rule.opacity(0.7) : .clear)
-                )
+                SidebarRow(section: section, count: store.surface?.count(section.bucket) ?? 0)
+                    .tag(section.bucket)
             }
-            Spacer()
-            Divider().padding(.bottom, 6)
-            HStack(spacing: 6) {
-                Circle().fill(core.status.isUp ? Color.watching : Color.alarm).frame(width: 6, height: 6)
-                Text(core.status.isUp ? "core running · local socket" : "core not running")
-                    .font(.system(size: 11))
-                    .foregroundStyle(core.status.isUp ? Color.inkFaint : Color.alarm)
-            }
-            .padding(.horizontal, 10)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 18)
-        .frame(width: 200)
-        .background(Color.sunk)
+        .listStyle(.sidebar)
     }
 }
 
-// MARK: - Sections
-
-private struct SectionHeader: View {
+private struct SidebarRow: View {
     let section: BucketSection
     let count: Int
+    /// Increased on the selected row of the focused list, whose highlight is
+    /// the accent colour: a bucket tint on top of it would fight it.
+    @Environment(\.backgroundProminence) private var prominence
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Label {
             Text(section.title)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color.inkPrimary)
-            Text("\(count)")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(section.bucket.tint)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
-                .background(section.bucket.wash, in: Capsule())
-            Text(section.note)
-                .font(.system(size: 12))
-                .foregroundStyle(Color.inkFaint)
+        } icon: {
+            Image(systemName: section.bucket.symbol)
+                .foregroundStyle(prominence == .increased ? AnyShapeStyle(.white) : AnyShapeStyle(section.bucket.tint))
         }
+        .badge(count)
+    }
+}
+
+// MARK: - Lists
+
+/// A list that is empty while another is not. The whole-app empty states are
+/// EmptyStateView's; this only says what would put something here.
+private struct EmptyList: View {
+    let bucket: Bucket
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(bucket == .learning ? "Nothing to learn" : "Nothing closed yet", systemImage: bucket.symbol)
+        } description: {
+            Text(bucket == .learning
+                 ? "When you say you didn't know something waiting on you, it comes here."
+                 : "A gap closes when you knew it, or when you explain it well enough to say why it works.")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 40)
     }
 }
 
 /// Closed is progress, not a list to work through: names, not cards.
 private struct ClosedChips: View {
     let concepts: [Concept]
-    private let shown = 12
 
     var body: some View {
         FlowLayout(spacing: 8) {
-            ForEach(concepts.prefix(shown)) { concept in
+            ForEach(concepts) { concept in
                 Text(concept.name)
                     .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(Color.bucketClosed)
@@ -316,12 +319,6 @@ private struct ClosedChips: View {
                     .padding(.vertical, 5)
                     .background(Color.bucketClosedBG, in: Capsule())
                     .help(concept.lead?.paraphrase ?? concept.name)
-            }
-            if concepts.count > shown {
-                Text("and \(concepts.count - shown) more")
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(Color.inkFaint)
-                    .padding(.vertical, 5)
             }
         }
     }
@@ -371,8 +368,8 @@ struct FlowLayout: Layout {
 
 // MARK: - Bars and notices
 
-/// Captured sessions waiting to be analysed, the button that spends money on
-/// them, and what has been spent. Absent when there is nothing to say.
+/// Captured sessions waiting to be analysed, and the button that spends money
+/// on them. Absent when there is nothing to say.
 private struct QueueBar: View {
     let watcher: Watcher
 
@@ -384,12 +381,6 @@ private struct QueueBar: View {
                     .foregroundStyle(Color.inkSoft)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
-                if let spent {
-                    Text(spent)
-                        .foregroundStyle(Color.inkFaint)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                }
                 if watcher.isRunning {
                     Button("Stop") { watcher.stopAnalysing() }.buttonStyle(UnrotButton())
                 } else if watcher.paused {
@@ -409,40 +400,20 @@ private struct QueueBar: View {
         if let progress = watcher.progress { return "Analysing \(progress.done + 1) of \(progress.total)…" }
         if watcher.paused { return "Watching is paused. Finished sessions are not being captured." }
         let n = watcher.pendingCount
-        guard n > 0 else {
-            // Nothing waiting, but money went out this week: still worth a line.
-            return spent == nil ? nil : "Nothing waiting to be analysed."
-        }
+        guard n > 0 else { return nil }
         let sessions = n == 1 ? "1 captured session is" : "\(n) captured sessions are"
         if !watcher.canAnalyse {
             return "\(sessions) waiting, but no model is configured. Add one in Settings › Model."
         }
-        let waiting = watcher.autoAnalyse
-            ? "\(sessions) waiting from before automatic analysis was on"
-            : "\(sessions) waiting to be analysed"
-        // "about $0.12" or "local, no cost" -- worded by the core, from recent
-        // sessions on the same model. Nothing to go on, nothing said.
-        return waiting + (watcher.estimate?.text.map { " — \($0)." } ?? ".")
-    }
-
-    /// The running total while a batch runs or right after one failed -- the
-    /// case that matters, since a failed call is still billed -- and otherwise
-    /// the week so far.
-    private var spent: String? {
-        if watcher.isRunning || watcher.lastError != nil,
-           let batch = watcher.batchSpent, batch.calls > 0 {
-            return "This run: \(batch.text)"
-        }
-        if let week = watcher.spentThisWeek, week.calls > 0 {
-            return "This week: \(week.text)"
-        }
-        return nil
+        return watcher.autoAnalyse
+            ? "\(sessions) waiting from before automatic analysis was on."
+            : "\(sessions) waiting to be analysed."
     }
 
     private var icon: String {
         if watcher.lastError != nil { return "exclamationmark.circle" }
         if watcher.paused { return "pause.circle" }
-        return watcher.pendingCount == 0 && !watcher.isRunning ? "tray" : "tray.full"
+        return "tray.full"
     }
 }
 

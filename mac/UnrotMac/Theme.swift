@@ -67,12 +67,33 @@ extension Bucket {
         }
     }
 
+    /// The sidebar's symbol: a question waiting, a thing to read, a thing done.
+    var symbol: String {
+        switch self {
+        case .open: "questionmark.circle"
+        case .learning: "book"
+        case .closed: "checkmark.circle"
+        default: "circle"
+        }
+    }
+
     var wash: Color {
         switch self {
         case .open: .bucketOpenBG
         case .learning: .bucketLearningBG
         case .closed: .bucketClosedBG
         default: .sunk
+        }
+    }
+}
+
+extension BucketSection {
+    /// Title case, as menu items are: "Waiting on You".
+    var menuTitle: String {
+        switch bucket {
+        case .open: "Waiting on You"
+        case .learning: "To Learn"
+        default: title
         }
     }
 }
