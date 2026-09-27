@@ -230,6 +230,120 @@ def test_a_vague_manual_submission_is_resolved_to_the_concept_meant(conn):
     assert row["session_id"] is None
 
 
+def judgment_payload(conn, result):
+    row = conn.execute(
+        "SELECT payload FROM events WHERE event_id = ?", (result.judgment_event_id,)
+    ).fetchone()
+    return json.loads(row["payload"])
+
+
+def test_a_detected_term_is_filed_under_the_name_it_was_met_by(conn):
+    """PR-40. The live case: a project-local label renamed into something new.
+
+    "format 1" appeared in the session. "Verification Gate with Undefined Output
+    Mode" did not, and a card under that name asks the person whether they know
+    a thing they never met.
+    """
+    result = resolve(
+        conn,
+        a_term(text="format 1"),
+        decide=decider(
+            decision="new",
+            canonical_name="Verification Gate with Undefined Output Mode",
+            reasoning="A project-specific gate.",
+        ),
+    )
+
+    assert result.canonical_name == "format 1"
+    row = conn.execute("SELECT concept_id, canonical_name FROM compiled_concepts").fetchone()
+    assert row["canonical_name"] == "format 1"
+    assert row["concept_id"] == "c-format-1"
+    # Not silent: the person reads the override, and the log keeps what was proposed.
+    payload = judgment_payload(conn, result)
+    assert payload["proposed_name"] == "Verification Gate with Undefined Output Mode"
+    assert payload["reasoning"].startswith("A project-specific gate.")
+    assert "Verification Gate with Undefined Output Mode" in payload["reasoning"]
+
+
+def test_an_expansion_of_a_detected_term_is_not_its_name(conn):
+    """Containing the term is not enough: the expansion is the model's claim.
+
+    It survives where the model's explanation belongs, the paraphrase, and is
+    not recorded as an alias -- aliases are shown on the card and matched with
+    no model asked.
+    """
+    result = resolve(
+        conn,
+        a_term(text="MVCC"),
+        decide=decider(
+            decision="new",
+            canonical_name="MVCC (Multi-Version Concurrency Control)",
+            paraphrase="Multi-version concurrency control: readers see a snapshot.",
+            reasoning="Standard database technique.",
+        ),
+    )
+
+    assert result.canonical_name == "MVCC"
+    row = conn.execute("SELECT canonical_name, aliases FROM compiled_concepts").fetchone()
+    assert row["canonical_name"] == "MVCC"
+    assert json.loads(row["aliases"]) == []
+    assert judgment_payload(conn, result)["proposed_name"] == (
+        "MVCC (Multi-Version Concurrency Control)"
+    )
+    encounter = conn.execute("SELECT paraphrase FROM compiled_encounters").fetchone()
+    assert encounter["paraphrase"] == "Multi-version concurrency control: readers see a snapshot."
+
+
+def test_keeping_the_met_name_means_the_next_sighting_needs_no_model(conn):
+    """The knock-on that makes this cheaper as well as honest."""
+    resolve(
+        conn,
+        a_term(text="MVCC"),
+        decide=decider(decision="new", canonical_name="Multi-Version Concurrency Control",
+                       reasoning="."),
+    )
+
+    def explode(submission, shortlist):
+        raise AssertionError("a term already filed under its own name must match by string")
+
+    again = resolve(conn, a_term(text="mvcc", session_id="s1"), decide=explode)
+    assert again.decision == "existing"
+    assert again.decided_without_model is True
+
+
+def test_the_model_may_tidy_the_case_of_a_detected_term(conn):
+    """`launchd` to `Launchd` is the same word; that is tidying, not renaming."""
+    result = resolve(
+        conn,
+        a_term(text="launchd"),
+        decide=decider(decision="new", canonical_name="Launchd", reasoning="macOS init system."),
+    )
+
+    assert result.canonical_name == "Launchd"
+    payload = judgment_payload(conn, result)
+    assert "proposed_name" not in payload
+    assert payload["reasoning"] == "macOS init system."
+
+
+def test_a_typed_term_may_still_be_renamed_to_what_was_meant(conn):
+    """Journey 10 is the opposite case, and the transcript rule must not reach it.
+
+    A person typing from memory is reaching for a term; the model naming that
+    term is the whole point of asking it.
+    """
+    result = resolve(
+        conn,
+        manual("that kubernetes thing, k8s"),
+        decide=decider(decision="new", canonical_name="Kubernetes",
+                       reasoning="They were reaching for Kubernetes."),
+    )
+
+    assert result.canonical_name == "Kubernetes"
+    row = conn.execute("SELECT canonical_name FROM compiled_concepts").fetchone()
+    assert row["canonical_name"] == "Kubernetes"
+    assert "proposed_name" not in judgment_payload(conn, result)
+
+
 # ---------------------------------------------------------------------------
 # What it cannot do
 # ---------------------------------------------------------------------------
@@ -394,12 +508,13 @@ def test_two_concepts_that_slug_the_same_do_not_collide(conn):
 
     Reached only when the string matcher did NOT match (so a new concept is
     genuinely being made) and the decider nonetheless named it something that
-    slugs to an id already taken.
+    slugs to an id already taken. Typed, because only a typed submission may be
+    renamed by the model -- a detected one keeps the name it was met under.
     """
     resolve(conn, a_term(text="write ahead logging"), decide=strict)
     second = resolve(
         conn,
-        a_term(text="WAL", session_id="s1"),
+        manual("WAL"),
         decide=decider(
             decision="new", canonical_name="write ahead logging",
             reasoning="Deliberately forced a slug collision.",
