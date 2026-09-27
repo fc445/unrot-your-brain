@@ -358,32 +358,33 @@ def test_grader_version_changes_when_the_rubric_changes(monkeypatch):
 
 
 def jev_response(probabilities, confidence=0.9, model="typesafe/jev-1.13-x"):
-    """Stand in for the HTTP call, in the shape the real endpoint returns."""
-    import contextlib
-    import io
+    """A transport standing in for the network, answering as the real endpoint does.
 
-    body = json.dumps(
-        {
-            "model": model,
-            "answers": {
-                "solo": {
-                    "type": "choice",
-                    "choice": max(probabilities, key=probabilities.get),
-                    "confidence": confidence,
-                    "probabilities": probabilities,
-                }
-            },
-            "usage": {"input_tokens": 400, "output_tokens": 40, "cost": 0.000018},
-        }
-    )
+    Every request it receives is kept on `.seen`, so a test can read what was sent.
+    """
+    import httpx2
 
-    @contextlib.contextmanager
-    def fake(request, timeout=None):
-        del timeout
-        fake.seen = request
-        yield io.BytesIO(body.encode())
+    body = {
+        "model": model,
+        "answers": {
+            "solo": {
+                "type": "choice",
+                "choice": max(probabilities, key=probabilities.get),
+                "confidence": confidence,
+                "probabilities": probabilities,
+            }
+        },
+        "usage": {"input_tokens": 400, "output_tokens": 40, "cost": 0.000018},
+    }
+    seen = []
 
-    return fake
+    def answer(request):
+        seen.append(request)
+        return httpx2.Response(200, json=body)
+
+    transport = httpx2.MockTransport(answer)
+    transport.seen = seen
+    return transport
 
 
 def test_the_classifier_grade_keeps_the_whole_distribution(conn, concept, monkeypatch):
@@ -394,17 +395,13 @@ def test_the_classifier_grade_keeps_the_whole_distribution(conn, concept, monkey
     """
     from unrot.grader import jev
 
-    monkeypatch.setattr(
-        jev.urllib.request,
-        "urlopen",
-        jev_response({"isolated": 0.0, "listed": 0.72, "causal": 0.28}),
-    )
+    transport = jev_response({"isolated": 0.0, "listed": 0.72, "causal": 0.28})
 
     explanation_id = submit(conn, concept.concept_id, "Facts, unconnected.")
     result = grade(
         conn,
         explanation_id,
-        grade_fn=jev.build_jev_grader(_config()),
+        grade_fn=jev.build_jev_grader(_config(), transport=transport),
         model_label="jev",
     )
 
@@ -428,9 +425,8 @@ def test_the_level_is_taken_from_the_distribution_not_the_label(conn, concept, m
     from unrot.grader import jev
 
     disagreeing = jev_response({"isolated": 0.0, "listed": 0.9, "causal": 0.1})
-    monkeypatch.setattr(jev.urllib.request, "urlopen", disagreeing)
 
-    grade_fn = jev.build_jev_grader(_config())
+    grade_fn = jev.build_jev_grader(_config(), transport=disagreeing)
     answer = grade_fn("q", "a")
     assert answer["level"] == "listed"
     assert answer["level"] == max(answer["probabilities"], key=answer["probabilities"].get)
@@ -471,10 +467,9 @@ def test_the_classifier_is_sent_both_the_question_and_the_answer(conn, monkeypat
     from unrot.grader import jev
 
     fake = jev_response({"isolated": 0.0, "listed": 1.0, "causal": 0.0})
-    monkeypatch.setattr(jev.urllib.request, "urlopen", fake)
 
-    jev.build_jev_grader(_config())("What is idempotency?", "You can call it twice.")
-    sent = json.loads(fake.seen.data)
+    jev.build_jev_grader(_config(), transport=fake)("What is idempotency?", "You can call it twice.")
+    sent = json.loads(fake.seen[-1].content)
     assert "What is idempotency?" in sent["state"]
     assert "You can call it twice." in sent["state"]
     assert set(sent["questions"]["solo"]["criteria"]) == set(SOLO)
@@ -482,12 +477,32 @@ def test_the_classifier_is_sent_both_the_question_and_the_answer(conn, monkeypat
 
 def test_the_classifier_endpoint_sits_beside_the_chat_one(conn):
     from unrot.grader import jev
+    from unrot.model import ModelConfig
 
-    assert (
-        jev._endpoint("https://openrouter.ai/api/v1")
-        == "https://openrouter.ai/api/v1/systemone"
-    )
-    assert jev._endpoint("http://localhost:11434/v1/") == "http://localhost:11434/v1/systemone"
+    for base, expected in (
+        ("https://openrouter.ai/api/v1", "https://openrouter.ai/api/v1/systemone"),
+        ("http://localhost:11434/v1/", "http://localhost:11434/v1/systemone"),
+    ):
+        fake = jev_response({"isolated": 1.0, "listed": 0.0, "causal": 0.0})
+        jev.build_jev_grader(ModelConfig(base_url=base, api_key="k"), transport=fake)("q", "a")
+        assert str(fake.seen[-1].url) == expected
+
+
+def test_a_classifier_grade_is_priced(conn):
+    """The classifier's own response type keeps only token counts. OpenRouter's
+    price is read off the raw response on its way past, so Jev spend is priced
+    rather than quietly counted as unknown."""
+    from unrot.grader import jev
+    from unrot.spend import Meter
+
+    meter = Meter()
+    fake = jev_response({"isolated": 0.0, "listed": 1.0, "causal": 0.0})
+    jev.build_jev_grader(_config(), meter=meter, transport=fake)("q", "a")
+
+    [call] = meter.calls
+    assert call.purpose == "grading"
+    assert call.cost == 0.000018
+    assert call.ok
 
 
 def test_the_classifier_needs_a_key_like_everything_else(conn):

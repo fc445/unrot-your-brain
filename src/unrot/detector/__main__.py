@@ -84,7 +84,6 @@ def main(argv=None) -> int:
                 session_id,
                 propose=propose,
                 model_label=config.label,
-                concurrency=config.concurrency,
                 max_candidates=args.max,
             )
         if args.json:

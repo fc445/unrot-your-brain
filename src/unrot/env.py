@@ -45,6 +45,11 @@ SETTINGS: dict[str, str] = {
         " and in the app, sessions side by side. Default 4, or 1 for a local"
         " endpoint."
     ),
+    "UNROT_FAMILIARITY": (
+        "on | off. Before a gap is filed, ask whether your own history says you"
+        " already know it, and hold it back if so. Default on with a hosted key;"
+        " never runs against a local endpoint."
+    ),
     "LANGSMITH_API_KEY": "Optional. Traces the calls if LANGSMITH_TRACING is set.",
 }
 

@@ -102,7 +102,11 @@ CREATE TABLE IF NOT EXISTS compiled_encounters (
     -- event is still in the log -- nothing is destroyed, and the judgment above
     -- is attached to encounter_id rather than to any paraphrase event, so a
     -- supersession can never orphan it.
-    paraphrase_superseded INTEGER NOT NULL DEFAULT 0
+    paraphrase_superseded INTEGER NOT NULL DEFAULT 0,
+    -- 1 when triage believed the person already knew this and surfaced it
+    -- anyway, to ask. The answer measures how often triage's hold-backs are
+    -- right, which nothing else can: a held-back candidate is never seen.
+    spot_check       INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_enc_concept ON compiled_encounters (concept_id);

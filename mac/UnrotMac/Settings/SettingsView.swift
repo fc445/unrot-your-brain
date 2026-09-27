@@ -15,6 +15,7 @@ struct SettingsView: View {
     let model: ModelSettings
     let regenerator: Regenerator
     let client: UnrotClient
+    let updater: Updater
     let restartCore: () -> Void
 
     enum Tab: Hashable { case capture, model, notifications, advanced, developer }
@@ -29,7 +30,7 @@ struct SettingsView: View {
                 .tabItem { Text("Model") }.tag(Tab.model)
             NotificationsPane(notifier: notifier)
                 .tabItem { Text("Notifications") }.tag(Tab.notifications)
-            RegeneratePane(regenerator: regenerator)
+            RegeneratePane(regenerator: regenerator, updater: updater)
                 .tabItem { Text("Advanced") }.tag(Tab.advanced)
             #if DEV_FEATURES
             DeveloperPane(client: client, regenerator: regenerator, restartCore: restartCore)
@@ -459,6 +460,7 @@ struct ModelPane: View {
 
 struct RegeneratePane: View {
     let regenerator: Regenerator
+    let updater: Updater
     @State private var confirming = false
 
     var body: some View {
@@ -513,6 +515,8 @@ struct RegeneratePane: View {
                         .font(.system(size: 11)).foregroundStyle(Color.inkFaint)
                 }
             }
+
+            UpdatesSection(updater: updater)
         }
         .formStyle(.grouped)
         .task { await regenerator.refresh() }
@@ -555,6 +559,7 @@ struct DeveloperPane: View {
     var body: some View {
         Form {
             BuildInfoSection()
+            PipelineSection(client: client)
             LangSmithSection(restartCore: restartCore)
             WipeAndRerunSection(client: client, regenerator: regenerator)
             Section {

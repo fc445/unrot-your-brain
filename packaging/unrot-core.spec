@@ -46,12 +46,17 @@ hiddenimports = [
     *collect_submodules("unrot"),
 ]
 
-# LangChain is here for an OpenAI-compatible client, not as an agent framework
-# -- but it still resolves providers and tokenisers dynamically, so it needs
-# collecting whole rather than trusting the import graph. langsmith is what it
-# traces through when LANGSMITH_TRACING is set, which a dev build's Developer
-# tab does; nothing imports it until then.
-for package in ("langchain_openai", "langchain_core", "langsmith", "tiktoken", "tiktoken_ext"):
+# LangChain's integrations are the clients inside the analysis graph, and they
+# resolve providers and tokenisers dynamically, so they need collecting whole
+# rather than trusting the import graph. langsmith is what they trace through
+# when LANGSMITH_TRACING is set, which a dev build's Developer tab does; nothing
+# imports it until then. langgraph runs the analysis (`unrot.pipeline`), and
+# langchain_typesafe (with its httpx2) is how Jev is called; both are imported
+# lazily, inside functions, so the import graph alone would miss them.
+for package in (
+    "langchain_openai", "langchain_core", "langsmith", "tiktoken", "tiktoken_ext",
+    "langgraph", "langchain_typesafe", "httpx2",
+):
     try:
         pkg_datas, pkg_binaries, pkg_hidden = collect_all(package)
     except Exception:  # noqa: BLE001 - an absent optional package is not a build failure

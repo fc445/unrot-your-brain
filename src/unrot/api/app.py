@@ -72,6 +72,7 @@ from .schemas import (
     PendingOut,
     QueueOut,
     SpendDayOut,
+    PipelineOut,
     SpendOut,
     SpendPartOut,
     SpendTotalOut,
@@ -241,6 +242,22 @@ def _build_analyser(meter=None):
         raise _NoModel(str(exc)) from exc
 
 
+def _build_triage(meter=None):
+    """The familiarity judge and its label, or `(None, "none")` when triage is off.
+
+    Never raises, and never stops analysis: triage only holds back what the
+    person very likely already knows, so running without it is analysis as it
+    was, not analysis done wrong.
+    """
+    from ..model import ModelConfig
+    from ..triage import familiarity_from_env
+
+    judge = familiarity_from_env(ModelConfig.from_env(), meter=meter)
+    if judge is None:
+        return None, "none"
+    return judge, judge.model.replace("/", "-")
+
+
 def _can_analyse() -> bool:
     from ..model import ModelConfig
 
@@ -273,6 +290,9 @@ LEAVES_THIS_MAC = [
     " at once, and never tool output.",
     "Resolution: a candidate term and its one-line paraphrase, with the names of"
     " concepts it might match.",
+    "Familiarity: a candidate term and its paraphrase, with the names and"
+    " paraphrases of up to 40 concepts you said you knew and 40 you confirmed you"
+    " did not. Off with UNROT_FAMILIARITY=off.",
     "The check: your answer and the question it was given to, for grading.",
     "Material: the concept's name and its paraphrases, to write from and to"
     " search for sources.",
@@ -813,6 +833,22 @@ def create_app() -> FastAPI:
             spent_this_week=_total_out(week, local=config.local),
         )
 
+    @app.get("/api/pipeline", response_model=PipelineOut)
+    def pipeline_report(days: int = 7) -> PipelineOut:
+        """Each analysis stage over the last `days`: what it did, what it cost,
+        how long it took, and -- from your answers -- how often it was right.
+
+        The same function `store pipeline` prints. Reads the log; writes nothing.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        from .. import pipeline_metrics
+
+        since = datetime.now(timezone.utc) - timedelta(days=max(days, 1))
+        with stores() as (conn, _raw):
+            report = pipeline_metrics.compute(conn, since=since)
+        return PipelineOut(**report.as_dict())
+
     @app.get("/api/spend", response_model=SpendOut)
     def spend(since: str | None = None) -> SpendOut:
         """What model calls have cost: this week, since install, and per session.
@@ -931,6 +967,7 @@ def create_app() -> FastAPI:
             propose, decide, detector_label, resolver_label = _build_analyser(meter)
         except _NoModel as exc:
             raise HTTPException(409, str(exc)) from exc
+        familiar, triage_label = _build_triage(meter)
 
         with _ANALYSING_LOCK:
             if session_id in _ANALYSING:
@@ -954,6 +991,8 @@ def create_app() -> FastAPI:
                             decide=decide,
                             detector_label=detector_label,
                             resolver_label=resolver_label,
+                            judge=familiar,
+                            triage_label=triage_label,
                             concurrency=concurrency,
                         )
                 except HTTPException:
@@ -990,6 +1029,7 @@ def create_app() -> FastAPI:
             session_id=session_id,
             clean=result.clean,
             filed=[r.canonical_name for r in result.resolutions],
+            held_back=[v.candidate.term for v in result.held_back],
             windows_examined=result.windows_examined,
             detector_version=result.detector_version,
             counts={b: sum(1 for c in found if c.bucket == b) for b in read.BUCKETS},
@@ -1097,6 +1137,7 @@ def create_app() -> FastAPI:
             propose, decide, detector_label, _ = _build_analyser(meter)
         except _NoModel as exc:
             raise HTTPException(409, str(exc)) from exc
+        familiar, triage_label = _build_triage(meter)
 
         with _ANALYSING_LOCK:
             if session_id in _ANALYSING:
@@ -1114,6 +1155,7 @@ def create_app() -> FastAPI:
                             conn, raw,
                             propose=propose, decide=decide, model_label=detector_label,
                             sessions=[session_id], meter=meter, concurrency=concurrency,
+                            judge=familiar, triage_label=triage_label,
                         )
                     )
                 except Exception as exc:

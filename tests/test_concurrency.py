@@ -6,8 +6,9 @@ another. Now it sends them together, and the app analyses several sessions at
 once. Two things must not change when it does, and these tests are about those:
 
 * **The answer.** Chunks are gathered back in order, so a term flagged in two
-  chunks is kept from the earlier one, exactly as it was when they ran in turn.
-* **The graph.** Filing is serialised (`analyse.FILING`), so two sessions that
+  chunks is kept from the earlier one, exactly as it was when they ran in turn
+  (`test_pipeline`).
+* **The graph.** Filing is serialised (`pipeline.FILING`), so two sessions that
   met the same term at the same moment file it under one concept, not two.
 
 No network and no model: the proposers here block on a barrier, which only
@@ -24,8 +25,9 @@ import pytest
 
 from unrot.analyse import analyse_session
 from unrot.capture import connect as connect_raw
-from unrot.detector import build_windows, chunk_windows, detect
+from unrot.detector import build_windows, chunk_windows
 from unrot.model import DEFAULT_CONCURRENCY, ModelConfig
+from unrot.pipeline import Deps, run_session
 from unrot.resolver import strict
 from unrot.store.__main__ import open_store
 
@@ -48,11 +50,31 @@ def first_line(prompt: str) -> int:
 
 
 # --- chunks -------------------------------------------------------------------
+#
+# Chunks go out in parallel from the analysis graph (`unrot.pipeline`). That the
+# answer does not depend on the order they come back, and that a failed chunk
+# leaves the session pending, are `test_pipeline`'s. These are about the number
+# in flight, which `concurrency` now sets.
+
+
+BUDGET = 8_000  # small chunks, so the long session needs several
+
+
+def analyse(raw, session_id: str, propose, *, concurrency: int):
+    store = open_store(test_detector._HOME)
+    try:
+        return run_session(session_id, Deps(
+            conn=store, raw=raw, propose=propose, decide=strict,
+            detector_label=MODEL, resolver_label=MODEL,
+            chunk_budget=BUDGET, concurrency=concurrency,
+        ))
+    finally:
+        store.close()
 
 
 def test_a_long_sessions_chunks_are_sent_at_once(conn):
     session = long_session(conn)
-    chunks = chunk_windows(build_windows(conn, session), budget=8_000)
+    chunks = chunk_windows(build_windows(conn, session), budget=BUDGET)
     assert len(chunks) >= 2
 
     # Every call waits for the others. Sent one at a time, the first would wait
@@ -63,65 +85,31 @@ def test_a_long_sessions_chunks_are_sent_at_once(conn):
         together.wait()
         return []
 
-    result = detect(
-        conn, session, propose=propose, model_label=MODEL, chunk_budget=8_000,
-        concurrency=len(chunks),
-    )
-    assert result.calls_made == len(chunks)
+    run = analyse(conn, session, propose, concurrency=len(chunks))
+    assert run.result.calls_made == len(chunks)
 
 
-def test_chunks_answered_out_of_order_give_the_same_result(conn):
-    """The first chunk is the slowest to answer, and still wins the tie."""
-    session = long_session(conn)
-
-    def propose(prompt):
-        line = first_line(prompt)
-        # Earlier chunks answer later: the reverse of the order they were sent.
-        time.sleep(max(0.0, 0.3 - line / 1000))
-        return [proposal(term="idempotent", line=line)]
-
-    one_at_a_time = detect(conn, session, propose=propose, model_label=MODEL, chunk_budget=8_000)
-    at_once = detect(
-        conn, session, propose=propose, model_label=MODEL, chunk_budget=8_000, concurrency=4
-    )
-
-    assert [c.as_dict() for c in at_once.ranked] == [c.as_dict() for c in one_at_a_time.ranked]
-    # Flagged once per chunk; kept once, from the first chunk.
-    [kept] = at_once.ranked
-    first_chunk = chunk_windows(build_windows(conn, session), budget=8_000)[0]
-    assert kept.line_start == first_chunk[0].line_start
-
-
-def test_a_failed_chunk_fails_the_session(conn):
-    session = long_session(conn)
-
-    def propose(prompt):
-        if first_line(prompt) > 1:
-            raise RuntimeError("the provider fell over")
-        return []
-
-    with pytest.raises(RuntimeError, match="fell over"):
-        detect(conn, session, propose=propose, model_label=MODEL, chunk_budget=8_000, concurrency=4)
-
-
-def test_one_at_a_time_is_still_the_default(conn):
-    """Callers that say nothing get the old behaviour, calls in turn."""
+def test_a_concurrency_of_one_sends_them_in_turn(conn):
+    """What a local endpoint gets: it answers one request at a time anyway."""
     session = long_session(conn)
     in_flight = 0
     most = 0
+    calls = 0
     lock = threading.Lock()
 
     def propose(_prompt):
-        nonlocal in_flight, most
+        nonlocal in_flight, most, calls
         with lock:
             in_flight += 1
+            calls += 1
             most = max(most, in_flight)
         time.sleep(0.01)
         with lock:
             in_flight -= 1
         return []
 
-    detect(conn, session, propose=propose, model_label=MODEL, chunk_budget=8_000)
+    analyse(conn, session, propose, concurrency=1)
+    assert calls >= 2
     assert most == 1
 
 

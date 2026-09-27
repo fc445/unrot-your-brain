@@ -31,6 +31,15 @@ struct GapCardView: View {
                     .textSelection(.enabled)
             }
 
+            if concept.isSpotCheck {
+                // Said plainly, because the answer means something different
+                // here: "I knew it" is triage having been right, not a bad flag.
+                Text("unrot thought you already knew this and would have left it off your list. Did you?")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.inkFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             if let provenance = concept.lead?.provenance {
                 Text(provenance)
                     .font(.system(size: 11, design: .monospaced))
@@ -73,6 +82,8 @@ struct GapCardView: View {
             if concept.typedIn {
                 // Provenance, never ranking: styled as a label, not a lesser card.
                 Pip(text: "you added this one", tint: .bucketLearning, wash: .bucketLearningBG)
+            } else if concept.isSpotCheck {
+                Pip(text: "spot check", tint: .bucketLearning, wash: .bucketLearningBG)
             } else if concept.bucket == .open {
                 Pip(text: "waved through", tint: .bucketOpen, wash: .bucketOpenBG)
             }

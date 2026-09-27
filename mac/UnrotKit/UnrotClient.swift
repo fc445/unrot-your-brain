@@ -144,6 +144,12 @@ public struct UnrotClient: Sendable {
         return try await get(Spend.self, "/api/spend?since=\(escape(formatter.string(from: since)))")
     }
 
+    /// Each analysis stage over the last `days`: counts, time, cost, and --
+    /// from the answers given -- how often it was right.
+    public func pipeline(days: Int = 7) async throws -> PipelineReport {
+        try await get(PipelineReport.self, "/api/pipeline?days=\(days)")
+    }
+
     // MARK: - Settings and regeneration
 
     public func config() async throws -> CoreConfig {

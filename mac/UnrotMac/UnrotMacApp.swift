@@ -20,6 +20,7 @@ struct UnrotMacApp: App {
                 model: delegate.model,
                 regenerator: delegate.regenerator,
                 client: delegate.client,
+                updater: delegate.updater,
                 restartCore: { delegate.core.restart() }
             )
             #if DEV_FEATURES
@@ -27,6 +28,10 @@ struct UnrotMacApp: App {
             #endif
         }
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { delegate.updater.checkForUpdates() }
+                    .disabled(!delegate.updater.canCheck)
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Open unrot") { delegate.showMain() }
                     .keyboardShortcut("0")
@@ -51,6 +56,7 @@ struct UnrotMacApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let core = CoreProcess()
     let model = ModelSettings()
+    let updater = Updater()
     #if DEV_FEATURES
     let langSmith = LangSmithSettings()
     #endif
@@ -116,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         #endif
         core.start()
+        updater.start()
         statusItem = StatusItemController(
             store: store,
             core: core,

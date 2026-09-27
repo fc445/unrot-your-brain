@@ -40,20 +40,21 @@ would be a thread and a progress table.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 
-from ..analyse import FILING
-from ..detector import detect
-from ..resolver import fingerprint, from_candidate, record_analysis, record_detection, resolve
+from ..pipeline import FILING, MAX_CONCURRENCY
 from .wipe import WipeResult, wipe  # noqa: F401 -- re-exported for `from ..regen import wipe`
 
-#: Events regeneration is allowed to delete. Both are `system` events, which S5
+#: Events regeneration is allowed to delete. All are `system` events, which S5
 #: defines as derived and replaceable, and the list is stated here so that
 #: widening it is a deliberate edit rather than a side effect of a refactor.
-REPLACEABLE = ("encounter_recorded", "session_analysed")
+#: `familiarity_judged` is here because triage re-judges every candidate a
+#: re-run finds; keeping the old ones would leave two answers for one moment.
+REPLACEABLE = ("encounter_recorded", "session_analysed", "familiarity_judged")
 
 
 @dataclass
@@ -199,7 +200,9 @@ def regenerate(
     max_candidates: int = 2,
     force: bool = False,
     meter=None,
-    concurrency: int = 1,
+    judge=None,
+    triage_label: str = "none",
+    concurrency: int = MAX_CONCURRENCY,
 ) -> Iterator[SessionPass]:
     """Re-run the detector over history, one session at a time.
 
@@ -212,12 +215,12 @@ def regenerate(
     down with the session's commit. A session that fails leaves its calls in
     the meter; the caller flushes them.
 
-    The writes on either side of detection are made under `analyse.FILING`, so
-    the app can regenerate several sessions at once: detection runs side by
-    side, and dropping and filing happen one session at a time.
-    `concurrency` is how many of this session's chunks detection may send at
-    once.
+    The writes are made under `analyse.FILING` -- dropping here, filing in the
+    graph's own nodes -- so the app can regenerate several sessions at once:
+    proposing runs side by side, and the writes happen one session at a time.
+    `concurrency` is how many of this session's chunks may be proposed at once.
     """
+    from ..pipeline import Deps, run_session
     from ..detector import detector_version as version_of
     from ..store import compile_state
 
@@ -238,52 +241,44 @@ def regenerate(
                 "   AND json_extract(payload, '$.session_id') = ?",
                 (session_id,),
             )
+            # Triage's record goes too -- except where the person has answered the
+            # encounter it names. That record is what makes an answered spot check a
+            # spot check, and the answer is the one measure of triage's hold-backs.
+            conn.execute(
+                "DELETE FROM events WHERE event_type = 'familiarity_judged'"
+                "   AND json_extract(payload, '$.session_id') = ?"
+                "   AND coalesce(json_extract(payload, '$.encounter_id'), '') NOT IN"
+                "       (SELECT value FROM json_each(?))",
+                (session_id, json.dumps(sorted(protected))),
+            )
             conn.commit()
             compile_state(conn)
 
         with meter.about(session_id=session_id) if meter else nullcontext():
-            result = detect(
-                raw,
+            # The same graph live analysis runs -- triage included, so a
+            # regenerated history holds back what a fresh analysis would have --
+            # with the judged encounters protected and one compile per session.
+            # `detector_ran` is not in REPLACEABLE: the next pass adds its own run
+            # beside this one, so the log keeps what every detector version said.
+            run = run_session(
                 session_id,
-                propose=propose,
-                model_label=model_label,
-                max_candidates=max_candidates,
-                concurrency=concurrency,
+                Deps(
+                    conn=conn, raw=raw, propose=propose, decide=decide,
+                    detector_label=model_label, resolver_label=model_label,
+                    max_candidates=max_candidates, judge=judge, triage_label=triage_label,
+                    protected=frozenset(protected), recompile=False,
+                    concurrency=concurrency,
+                ),
+                run_name="regenerate session",
             )
+            recorded = len(run.resolutions)
 
         # `protected` was read before detection, as it always was: this session's
         # unjudged encounters were dropped above, so there is nothing new for a
-        # judgment made meanwhile to land on.
-        with FILING, (meter.about(session_id=session_id) if meter else nullcontext()):
-            recorded = 0
-            for candidate in result.emitted:
-                submission = from_candidate(candidate)
-                # The conservative rule, at the one line where it is enforced. The
-                # new detector may well flag this same term at these same lines --
-                # and it is still not allowed to touch it, because the user has
-                # already said something about it and a fresh `encounter_recorded`
-                # would supersede the paraphrase they judged.
-                if fingerprint(submission) in protected:
-                    continue
-                resolve(
-                    conn,
-                    submission,
-                    decide=decide,
-                    model_label=model_label,
-                    recompile=False,
-                )
-                recorded += 1
-
-            # Not in REPLACEABLE: the next pass adds its own run beside this one,
-            # so the log keeps what every detector version said about the session.
-            record_detection(conn, result, max_candidates=max_candidates)
-            record_analysis(
-                conn,
-                session_id,
-                candidates_found=len(result.emitted),
-                detector_version=result.detector_version,
-                recompile=False,
-            )
+        # judgment made meanwhile to land on. The graph's writing nodes held
+        # FILING for themselves; the commit, the meter and the compile hold it
+        # here.
+        with FILING:
             conn.commit()
             if meter is not None:
                 meter.flush(conn)
