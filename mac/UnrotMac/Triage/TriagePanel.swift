@@ -56,7 +56,9 @@ final class TriagePanel: NSObject, NSWindowDelegate {
         // A hosting controller that sizes the panel to its content, so a
         // panel whose state changes grows and shrinks with it rather than
         // clipping or leaving a gap.
-        let hosting = NSHostingController(rootView: TriageView(store: store, quick: quick) { [weak self] in self?.close() })
+        let hosting = NSHostingController(
+            rootView: TriageView(store: store, quick: quick) { [weak self] in self?.close() }.tint(Color.accent)
+        )
         hosting.sizingOptions = [.preferredContentSize]
         panel.contentViewController = hosting
         return panel
@@ -80,15 +82,15 @@ struct TriageView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text("Triage").font(.display(18))
                 Spacer()
-                Text("Esc to close").font(.system(size: 11)).foregroundStyle(Color.inkFaint)
+                Text("Esc to close").font(.system(.subheadline)).foregroundStyle(Color.inkFaint)
             }
 
             if let (concept, encounter) = store.nextWaiting {
                 VStack(alignment: .leading, spacing: 8) {
                     Eyebrow(text: "\(answered + 1) of \(answered + store.waitingCount)", tint: .bucketOpen)
-                    Text(concept.name).font(.system(size: 17, weight: .semibold))
+                    Text(concept.name).font(.system(.title2, weight: .semibold))
                     Text(encounter.paraphrase ?? "")
-                        .font(.system(size: 13))
+                        .font(.system(.body))
                         .foregroundStyle(Color.inkSoft)
                         .lineLimit(4)
                         .fixedSize(horizontal: false, vertical: true)
@@ -113,17 +115,17 @@ struct TriageView: View {
                         .frame(width: 26, height: 26)
                         .foregroundStyle(Color.bucketClosed)
                     Text("That's everything.")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(.title3, weight: .semibold))
                         .foregroundStyle(Color.bucketClosed)
                     Text("\(answered) answered. The ring closes.")
-                        .font(.system(size: 12.5))
+                        .font(.system(.callout))
                         .foregroundStyle(Color.inkSoft)
                 }
                 .frame(maxWidth: .infinity, minHeight: 150)
                 .background(Color.bucketClosedBG, in: RoundedRectangle(cornerRadius: 10))
             } else {
                 Text(store.surface?.headline ?? "Nothing waiting on you.")
-                    .font(.system(size: 13.5))
+                    .font(.system(.body))
                     .foregroundStyle(Color.inkSoft)
                     .frame(maxWidth: .infinity, minHeight: 150)
             }

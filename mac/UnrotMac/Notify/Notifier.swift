@@ -181,16 +181,30 @@ final class Notifier: NSObject {
     /// a menu past two, and this product has exactly two answers -- so the
     /// platform limit and the product agree. The check is a separate category
     /// rather than a third button.
+    /// Title case and a symbol each, as notification actions are written; the
+    /// same words and symbols as the Gap menu, so an answer reads the same
+    /// wherever it is given.
     private static var categories: Set<UNNotificationCategory> {
-        let knew = UNNotificationAction(identifier: Action.knew, title: "I knew this")
-        let didNot = UNNotificationAction(identifier: Action.didNot, title: "I didn't know this")
+        let knew = UNNotificationAction(
+            identifier: Action.knew, title: "I Knew It", options: [],
+            icon: UNNotificationActionIcon(systemImageName: "checkmark.circle")
+        )
+        let didNot = UNNotificationAction(
+            identifier: Action.didNot, title: "I Didn't Know This", options: [],
+            icon: UNNotificationActionIcon(systemImageName: "questionmark.circle")
+        )
         let explain = UNTextInputNotificationAction(
             identifier: Action.explain,
-            title: "Explain it",
+            title: "Explain It",
+            options: [],
+            icon: UNNotificationActionIcon(systemImageName: "text.bubble"),
             textInputButtonTitle: "Send",
             textInputPlaceholder: "In a line or two…"
         )
-        let triage = UNNotificationAction(identifier: Action.triage, title: "Triage", options: [.foreground])
+        let triage = UNNotificationAction(
+            identifier: Action.triage, title: "Triage", options: [.foreground],
+            icon: UNNotificationActionIcon(systemImageName: "rectangle.stack")
+        )
         return [
             UNNotificationCategory(identifier: Category.gap, actions: [didNot, knew], intentIdentifiers: []),
             UNNotificationCategory(identifier: Category.check, actions: [explain], intentIdentifiers: []),

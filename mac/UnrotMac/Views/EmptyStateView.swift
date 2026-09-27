@@ -30,14 +30,14 @@ struct EmptyStateView: View {
                 .font(.display(28))
                 .foregroundStyle(Color.inkPrimary)
             Text(detail)
-                .font(.system(size: 13.5))
+                .font(.system(.body))
                 .foregroundStyle(Color.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 520, alignment: .leading)
 
             if let why {
                 Text(why)
-                    .font(.system(size: 12))
+                    .font(.system(.callout))
                     .foregroundStyle(Color.inkSoft)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(12)
@@ -47,7 +47,7 @@ struct EmptyStateView: View {
 
             if let analysing {
                 ProgressView(value: Double(analysing.done), total: Double(max(analysing.total, 1))) {
-                    Text("Examining \(analysing.done + 1) of \(analysing.total)…").font(.system(size: 12))
+                    Text("Examining \(analysing.done + 1) of \(analysing.total)…").font(.system(.callout))
                 }
                 .frame(maxWidth: 360)
             } else if let action {

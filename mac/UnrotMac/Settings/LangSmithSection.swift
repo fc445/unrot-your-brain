@@ -45,7 +45,7 @@ struct LangSmithSection: View {
             Text(langSmith.keySource == .none
                  ? "This build was made without a LangSmith key. Save one above to turn tracing on."
                  : "While this is on, every model call the core makes — prompts, transcript excerpts and answers — is sent to LangSmith.")
-                .font(.system(size: 11))
+                .font(.system(.subheadline))
                 .foregroundStyle(Color.inkFaint)
         }
     }

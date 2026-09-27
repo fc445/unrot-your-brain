@@ -10,12 +10,11 @@ import SwiftUI
 import UnrotKit
 
 extension Color {
-    /// The canvas's link and accent amber: `#8a5208` on paper, lighter at night.
-    static let link = Color.ink(0x8a5208, 0xe5a94f)
     static let watching = Color.ink(0x2f7a4f, 0x72b98d)
 }
 
-/// Primary is the one thing the screen is asking; secondary is its alternative.
+/// Primary is the one thing the screen is asking, in the accent; secondary is
+/// its alternative.
 struct UnrotButton: ButtonStyle {
     enum Weight { case primary, secondary }
     var weight: Weight = .secondary
@@ -40,14 +39,14 @@ struct UnrotButton: ButtonStyle {
 
         private var label: some View {
         configuration.label
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(.body, weight: .semibold))
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(maxWidth: fill ? .infinity : nil)
-            .foregroundStyle(weight == .primary ? Color.paper : Color.inkPrimary)
+            .foregroundStyle(weight == .primary ? Color.white : Color.inkPrimary)
             .background(
                 RoundedRectangle(cornerRadius: 7)
-                    .fill(weight == .primary ? Color.inkPrimary : Color.card)
+                    .fill(weight == .primary ? Color.accentFill : Color.card)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 7)
@@ -59,15 +58,26 @@ struct UnrotButton: ButtonStyle {
     }
 }
 
-/// "Show the moment →" -- amber, never blue: blue on this palette reads as the
-/// learning bucket, and a link is not a bucket.
+/// "Show the moment…" -- in the accent, as everything you can act on is, and
+/// underlined under the pointer.
 struct LinkButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(Color.link)
-            .opacity(configuration.isPressed ? 0.6 : 1)
-            .contentShape(Rectangle())
+        Rendered(configuration: configuration)
+    }
+
+    private struct Rendered: View {
+        let configuration: Configuration
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .font(.system(.body, weight: .semibold))
+                .foregroundStyle(Color.accent)
+                .underline(hovering)
+                .opacity(configuration.isPressed ? 0.6 : 1)
+                .contentShape(Rectangle())
+                .onHover { hovering = $0 }
+        }
     }
 }
 
@@ -78,7 +88,7 @@ struct Pip: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 10.5, weight: .semibold))
+            .font(.system(.caption, weight: .semibold))
             .foregroundStyle(tint)
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
@@ -93,7 +103,7 @@ struct Eyebrow: View {
 
     var body: some View {
         Text(text.uppercased())
-            .font(.system(size: 10.5, weight: .semibold))
+            .font(.system(.caption, weight: .semibold))
             .tracking(0.6)
             .foregroundStyle(tint)
     }
@@ -105,7 +115,7 @@ struct Keycap: View {
 
     var body: some View {
         Text(key)
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .font(.system(.caption, design: .monospaced, weight: .semibold))
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .foregroundStyle(inverted ? Color.paper.opacity(0.85) : Color.inkSoft)
@@ -114,6 +124,9 @@ struct Keycap: View {
                     .fill(inverted ? Color.paper.opacity(0.15) : Color.sunk)
             )
             .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.rule, lineWidth: inverted ? 0 : 1))
+            // A hint for the eye. VoiceOver already reads the button it sits in,
+            // and "D" on its own after it would be noise.
+            .accessibilityHidden(true)
     }
 }
 
@@ -130,7 +143,7 @@ struct StatusPill: View {
             Circle().fill(tint).frame(width: 7, height: 7)
             Text(label)
         }
-        .font(.system(size: 12, weight: .semibold))
+        .font(.system(.callout, weight: .semibold))
         .foregroundStyle(tint)
         .padding(.horizontal, bare ? 4 : 10)
         .padding(.vertical, 4)

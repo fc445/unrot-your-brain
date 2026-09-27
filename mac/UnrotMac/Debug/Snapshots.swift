@@ -54,7 +54,8 @@ enum Snapshots {
         for (name, socket) in homes {
             let kit = await Kit(socket: socket, up: name != "failed")
             await shootWindow("main-\(name)") {
-                RootView(core: kit.core, store: kit.store, quick: kit.quick, watcher: kit.watcher, router: Router())
+                RootView(core: kit.core, store: kit.store, quick: kit.quick, watcher: kit.watcher, router: Router(),
+                         regenerator: Regenerator(client: kit.client, store: kit.store))
             }
             if ["full", "clean", "failed"].contains(name) {
                 await shoot("popover-\(name)") {
@@ -80,6 +81,14 @@ enum Snapshots {
     /// Everything that needs a populated store.
     private static func shootFull(_ kit: Kit) async {
         let store = kit.store
+        // Accessibility › Increase Contrast, which the palette answers with
+        // stronger text and rules.
+        await shootWindow(
+            "main-full-contrast",
+            appearances: [("light", .accessibilityHighContrastAqua), ("dark", .accessibilityHighContrastDarkAqua)]
+        ) {
+            RootView(core: kit.core, store: store, quick: kit.quick, watcher: kit.watcher, router: Router())
+        }
         for (tag, bucket) in [("learning", Bucket.learning), ("closed", .closed)] {
             let router = Router()
             router.list = bucket
@@ -133,24 +142,23 @@ enum Snapshots {
         }
 
         let settings = ModelSettings()
-        await shoot("settings-capture", size: NSSize(width: 760, height: 620), settle: .milliseconds(900)) {
-            CapturePane(watcher: kit.watcher).frame(width: 760, height: 620)
+        await shoot("settings-capture", size: NSSize(width: 680, height: 600), settle: .milliseconds(900)) {
+            CapturePane(watcher: kit.watcher).frame(width: SettingsView.width, height: 600)
         }
         let regenerator = Regenerator(client: kit.client, store: store)
-        await shoot("settings-model", size: NSSize(width: 760, height: 620), settle: .milliseconds(1200)) {
-            ModelPane(settings: settings, client: kit.client, watcher: kit.watcher, regenerator: regenerator,
-                      restartCore: {}, showPlan: {})
-                .frame(width: 760, height: 620)
+        await shoot("settings-model", size: NSSize(width: 680, height: 640), settle: .milliseconds(1200)) {
+            ModelPane(settings: settings, client: kit.client, restartCore: {})
+                .frame(width: SettingsView.width, height: 640)
         }
-        await shoot("settings-notifications", size: NSSize(width: 760, height: 420)) {
+        await shoot("settings-notifications", size: NSSize(width: 680, height: 320)) {
             NotificationsPane(notifier: Notifier(store: store, quick: kit.quick, openMain: {}, openTriage: {}))
         }
-        await shoot("settings-advanced", size: NSSize(width: 760, height: 700), settle: .milliseconds(900)) {
-            RegeneratePane(regenerator: regenerator, updater: .preview()).frame(width: 760, height: 700)
+        await shoot("settings-advanced", size: NSSize(width: 680, height: 600), settle: .milliseconds(900)) {
+            RegeneratePane(regenerator: regenerator, updater: .preview()).frame(width: 680, height: 600)
         }
         #if DEV_FEATURES
-        await shoot("settings-pipeline", size: NSSize(width: 760, height: 620), settle: .milliseconds(900)) {
-            Form { PipelineSection(client: kit.client) }.formStyle(.grouped).frame(width: 760, height: 620)
+        await shoot("settings-pipeline", size: NSSize(width: 680, height: 620), settle: .milliseconds(900)) {
+            Form { PipelineSection(client: kit.client) }.formStyle(.grouped).frame(width: 680, height: 620)
         }
         #endif
     }
@@ -168,7 +176,7 @@ enum Snapshots {
             // A sized shot is pinned to its size, as a real window pins its
             // content; views that fill their window would otherwise grow to
             // whatever the offscreen window lets them.
-            let hosting = NSHostingView(rootView: content().frame(width: size?.width, height: size?.height))
+            let hosting = NSHostingView(rootView: content().frame(width: size?.width, height: size?.height).tint(Color.accent))
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: size ?? NSSize(width: 400, height: 300)),
                 styleMask: [.borderless], backing: .buffered, defer: false
@@ -199,10 +207,11 @@ enum Snapshots {
     private static func shootWindow<V: View>(
         _ name: String,
         size: NSSize = NSSize(width: 1040, height: 760),
+        appearances: [(String, NSAppearance.Name)] = [("light", .aqua), ("dark", .darkAqua)],
         @ViewBuilder _ content: () -> V
     ) async {
-        for (suffix, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-            let hosting = NSHostingView(rootView: content())
+        for (suffix, appearance) in appearances {
+            let hosting = NSHostingView(rootView: content().tint(Color.accent))
             hosting.sceneBridgingOptions = [.toolbars, .title]
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: size),
@@ -292,13 +301,13 @@ private struct GlyphSheet: View {
                         Image(nsImage: TrayGlyph.image(for: state))
                             .renderingMode(.template)
                         if count > 0 {
-                            Text("\(count)").font(.system(size: 12, weight: .medium).monospacedDigit())
+                            Text("\(count)").font(.system(.callout, weight: .medium).monospacedDigit())
                         }
                     }
                     .padding(.horizontal, 8)
                     .frame(height: 24)
                     .background(.bar, in: RoundedRectangle(cornerRadius: 5))
-                    Text(label).font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text(label).font(.system(.caption)).foregroundStyle(.secondary)
                 }
             }
         }

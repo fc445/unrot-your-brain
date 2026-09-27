@@ -23,7 +23,7 @@ struct UpdatesSection: View {
                         .disabled(!updater.canCheck)
                     if let last = updater.lastChecked {
                         Text("Last checked \(last.formatted(.relative(presentation: .named)))")
-                            .font(.system(size: 11))
+                            .font(.system(.subheadline))
                             .foregroundStyle(Color.inkFaint)
                     }
                 }
@@ -36,7 +36,7 @@ struct UpdatesSection: View {
                     Text(channelLine)
                     Text("After an update, macOS asks once whether unrot may use your saved API key. Choose Always Allow. It asks because each build is signed on its own; a signed release will stop it.")
                 }
-                .font(.system(size: 11))
+                .font(.system(.subheadline))
                 .foregroundStyle(Color.inkFaint)
             }
         }

@@ -17,7 +17,7 @@ struct MaterialView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text(material.format == .sourcesOnly ? "Sources only" : "Written, with sources")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(.body, weight: .semibold))
                 Pip(
                     text: material.format == .sourcesOnly ? "generates nothing" : "every claim marked",
                     tint: material.format == .sourcesOnly ? .bucketClosed : .bucketLearning,
@@ -28,7 +28,7 @@ struct MaterialView: View {
 
             if let body = material.body, !body.isEmpty {
                 Text(Self.cited(body))
-                    .font(.system(size: 13.5))
+                    .font(.system(.body))
                     .foregroundStyle(Color.inkPrimary)
                     .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
@@ -66,7 +66,7 @@ struct MaterialView: View {
             out += AttributedString(rest[..<open])
             var mark = AttributedString(marks.map { String($0.dropFirst()) }.joined(separator: ","))
             mark.baselineOffset = 5
-            mark.font = .system(size: 9.5, weight: .semibold)
+            mark.font = .system(.caption, weight: .semibold)
             mark.foregroundColor = Color.bucketLearning
             out += mark
             rest = rest[rest.index(after: close)...]
@@ -83,32 +83,33 @@ private struct SourceRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text("\(number)")
-                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                .font(.system(.caption, design: .monospaced, weight: .semibold))
                 .foregroundStyle(Color.inkFaint)
                 .frame(width: 14, alignment: .trailing)
             VStack(alignment: .leading, spacing: 2) {
                 if let url = source.url {
                     Link(source.title ?? url.absoluteString, destination: url)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.link)
+                        .font(.system(.body, weight: .semibold))
+                        .foregroundStyle(Color.inkPrimary)
+                        .underline()
                 } else {
                     Text(source.title ?? source.ref ?? "Untitled source")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(.body, weight: .semibold))
                         .foregroundStyle(Color.inkPrimary)
                 }
                 if let whereFrom = source.whereFrom {
                     Text(whereFrom)
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(Color.inkFaint)
                 }
                 if let excerpt = source.excerpt, !excerpt.isEmpty {
                     Text(excerpt)
-                        .font(.system(size: 12))
+                        .font(.system(.callout))
                         .foregroundStyle(Color.inkSoft)
                         .lineLimit(3)
                 }
                 if source.verified == false, let note = source.note {
-                    Text(note).font(.system(size: 11)).italic().foregroundStyle(Color.inkFaint)
+                    Text(note).font(.system(.subheadline)).italic().foregroundStyle(Color.inkFaint)
                 }
             }
         }

@@ -13,6 +13,30 @@ import Observation
 import SwiftUI
 import UnrotKit
 
+/// Whether the ring is in the menu bar, as something Settings can bind to.
+/// macOS remembers it across launches, under the item's autosave name; this
+/// mirrors it both ways, including when someone ⌘-drags the item out.
+@MainActor
+@Observable
+final class MenuBarPresence {
+    var isVisible = true {
+        didSet { if item?.isVisible != isVisible { item?.isVisible = isVisible } }
+    }
+    @ObservationIgnored private weak var item: NSStatusItem?
+    @ObservationIgnored private var observation: NSKeyValueObservation?
+
+    fileprivate func attach(_ item: NSStatusItem) {
+        self.item = item
+        isVisible = item.isVisible
+        observation = item.observe(\.isVisible) { [weak self] item, _ in
+            let visible = item.isVisible
+            MainActor.assumeIsolated {
+                if self?.isVisible != visible { self?.isVisible = visible }
+            }
+        }
+    }
+}
+
 @MainActor
 final class StatusItemController: NSObject {
     private let item: NSStatusItem
@@ -41,7 +65,10 @@ final class StatusItemController: NSObject {
         let count: Int
     }
 
-    init(store: SurfaceStore, core: CoreProcess, quick: QuickAccept, watcher: Watcher, actions: Actions) {
+    init(
+        store: SurfaceStore, core: CoreProcess, quick: QuickAccept, watcher: Watcher,
+        presence: MenuBarPresence, actions: Actions
+    ) {
         self.store = store
         self.core = core
         self.quick = quick
@@ -55,6 +82,7 @@ final class StatusItemController: NSObject {
         // "hiding the icon is allowed and survives relaunch".
         item.behavior = .removalAllowed
         item.autosaveName = "unrot"
+        presence.attach(item)
 
         if let button = item.button {
             button.target = self
@@ -72,6 +100,7 @@ final class StatusItemController: NSObject {
                 self?.popover.performClose(nil)
                 self?.actions.openMain()
             }
+            .tint(Color.accent)
         )
 
         render()
@@ -131,9 +160,10 @@ final class StatusItemController: NSObject {
         animate(now.state == .analysing)
     }
 
-    /// The one animation, and only while something is being analysed.
+    /// The one animation, and only while something is being analysed -- and not
+    /// at all under Reduce Motion, where the analysing glyph holds still.
     private func animate(_ on: Bool) {
-        if on, spinner == nil {
+        if on, spinner == nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             spinner = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
                 Task { @MainActor in
                     guard let self else { return }

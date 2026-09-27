@@ -24,21 +24,23 @@ struct RootView: View {
     /// Present until the first run is finished; nothing is captured before then.
     var onboarding: Onboarding? = nil
     var modelSettings: ModelSettings? = nil
+    /// For asking, on Waiting on you, whether to re-examine history the
+    /// detector has since changed under.
+    var regenerator: Regenerator? = nil
 
-    /// The card K and D answer. Arrow keys move it; it defaults to the top.
-    @State private var focused: String?
     /// Whether the page, rather than the sidebar, has the keyboard. K and D
     /// only mean something to the page, so it starts with it.
     @FocusState private var pageHasKeyboard: Bool
     @Environment(\.undoManager) private var undoManager
 
-    private var waiting: [Concept] { store.concepts(in: .open) }
+    /// The cards the arrows move through: the list on screen's.
+    private var cards: [Concept] { list.bucket == .closed ? [] : store.concepts(in: list.bucket) }
     /// The watcher does not start until the first run is finished, so the bar must not
     /// claim it is watching while the user is still being asked whether it may.
     private var settingUp: Bool { onboarding.map { !$0.done } ?? false }
-    private var focusedConcept: Concept? {
-        waiting.first { $0.conceptId == focused } ?? waiting.first
-    }
+    /// The card K and D answer and the Gap menu acts on. The arrows move it;
+    /// it defaults to the top.
+    private var focusedConcept: Concept? { router.focusedConcept(in: store) }
     private var list: BucketSection {
         BucketSection.all.first { $0.bucket == router.list } ?? BucketSection.all[0]
     }
@@ -64,19 +66,28 @@ struct RootView: View {
         }
         .task {
             await store.load()
+            await regenerator?.refresh()
+            var ticks = 0
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
                 guard core.status.isUp else { continue }
                 await store.load()
+                // The plan changes when the detector or the history does,
+                // which is rarely: once a minute is plenty.
+                ticks += 1
+                if ticks % 12 == 0 { await regenerator?.refresh() }
             }
         }
-        .onChange(of: quick.undoable) { _, answer in
+        // Follows the last answer rather than the strip, so Edit › Undo
+        // outlives the strip's eight seconds.
+        .onChange(of: quick.lastAnswer) { _, answer in
             undoManager?.removeAllActions(withTarget: quick)
             guard let answer else { return }
             undoManager?.registerUndo(withTarget: quick) { target in
                 Task { @MainActor in await target.undo() }
             }
-            undoManager?.setActionName(answer.verdict == .confirm ? "“Didn't Know This”" : "“Knew It”")
+            // The Gap menu's words, so Edit › Undo names what was chosen there.
+            undoManager?.setActionName(answer.verdict == .confirm ? "“I Didn't Know This”" : "“I Knew It”")
         }
         .sheet(item: $router.moment) { request in
             MomentSheet(request: request, store: store, quick: quick) { router.moment = nil }
@@ -105,9 +116,9 @@ struct RootView: View {
     }
 
     private func move(_ step: Int) {
-        guard !waiting.isEmpty else { return }
-        let index = waiting.firstIndex { $0.conceptId == focusedConcept?.conceptId } ?? 0
-        focused = waiting[max(0, min(waiting.count - 1, index + step))].conceptId
+        guard !cards.isEmpty else { return }
+        let index = cards.firstIndex { $0.conceptId == focusedConcept?.conceptId } ?? 0
+        router.focusedGap = cards[max(0, min(cards.count - 1, index + step))].conceptId
     }
 
     // MARK: - The page
@@ -135,7 +146,7 @@ struct RootView: View {
                     contents.padding(.top, 22)
                 } else if !store.hasLoadedOnce {
                     Text(core.status.isUp ? "Reading the log…" : "Starting the core…")
-                        .font(.system(size: 13))
+                        .font(.system(.body))
                         .foregroundStyle(Color.inkFaint)
                         .padding(.top, 40)
                 }
@@ -157,20 +168,20 @@ struct RootView: View {
         }
         // K and D answer the focused card; the arrows move focus. Handled here
         // rather than as keyboard shortcuts, because a shortcut on a bare
-        // letter fires even while a text editor has focus. Only Waiting on you
-        // has cards to answer, so everywhere else the keys fall through.
+        // letter fires even while a text editor has focus. Only a waiting card
+        // has a question to answer, so everywhere else K and D fall through.
         .focusable()
         .focusEffectDisabled()
         .focused($pageHasKeyboard)
         .onAppear { pageHasKeyboard = true }
         .onKeyPress(keys: [.upArrow, .downArrow]) { press in
-            guard list.bucket == .open else { return .ignored }
+            guard !cards.isEmpty else { return .ignored }
             move(press.key == .upArrow ? -1 : 1)
             return .handled
         }
         .onKeyPress(characters: CharacterSet(charactersIn: "dDkK"), phases: .down) { press in
-            guard list.bucket == .open,
-                  let concept = focusedConcept, let encounter = concept.unanswered else { return .ignored }
+            guard let concept = focusedConcept, concept.bucket == .open,
+                  let encounter = concept.unanswered else { return .ignored }
             let verdict: Verdict = press.characters.lowercased() == "d" ? .confirm : .dismiss
             Task { await quick.answer(concept: concept, encounter: encounter, verdict) }
             return .handled
@@ -185,12 +196,15 @@ struct RootView: View {
             .font(.display(32))
             .foregroundStyle(Color.inkPrimary)
         Text(list.bucket == .open ? surface.detail : list.note + ".")
-            .font(.system(size: 13.5))
+            .font(.system(.body))
             .foregroundStyle(Color.inkSoft)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 4)
         if list.bucket == .open {
             QueueBar(watcher: watcher).padding(.top, 14)
+            if let regenerator {
+                ReexamineBanner(regenerator: regenerator, watcher: watcher).padding(.top, 10)
+            }
         }
     }
 
@@ -210,12 +224,14 @@ struct RootView: View {
                         store: store,
                         quick: quick,
                         router: router,
-                        isFocused: list.bucket == .open && concept.conceptId == focusedConcept?.conceptId
+                        isFocused: concept.conceptId == focusedConcept?.conceptId
                     )
                     .onTapGesture {
-                        guard list.bucket == .open else { return }
-                        focused = concept.conceptId
+                        router.focusedGap = concept.conceptId
                         pageHasKeyboard = true
+                    }
+                    .contextMenu {
+                        GapContextMenu(actions: GapActions(concept: concept, quick: quick, router: router))
                     }
                 }
             }
@@ -313,7 +329,7 @@ private struct ClosedChips: View {
         FlowLayout(spacing: 8) {
             ForEach(concepts) { concept in
                 Text(concept.name)
-                    .font(.system(size: 12.5, weight: .medium))
+                    .font(.system(.callout, weight: .medium))
                     .foregroundStyle(Color.bucketClosed)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 5)
@@ -389,7 +405,7 @@ private struct QueueBar: View {
                     Button("Analyse now") { watcher.analyseNow() }.buttonStyle(UnrotButton(weight: .primary))
                 }
             }
-            .font(.system(size: 12.5))
+            .font(.system(.callout))
             .padding(10)
             .background(Color.sunk, in: RoundedRectangle(cornerRadius: 8))
         }
@@ -417,6 +433,69 @@ private struct QueueBar: View {
     }
 }
 
+/// The detector changed since some of the history was analysed. Asked here,
+/// beside the gaps a re-examination would change, rather than in Settings,
+/// which is for choices made once. The plan itself stays in Settings ›
+/// Advanced, and Show the Plan opens it there.
+private struct ReexamineBanner: View {
+    let regenerator: Regenerator
+    let watcher: Watcher
+    @Environment(\.openSettings) private var openSettings
+    @State private var confirming = false
+
+    var body: some View {
+        if let progress = regenerator.progress {
+            bar(
+                title: "Re-examining \(min(progress.done + 1, progress.total)) of \(progress.total)…",
+                text: "Your judgments are not touched. It can stop between any two sessions."
+            ) {
+                Button("Stop") { regenerator.stop() }.buttonStyle(UnrotButton())
+            }
+        } else if let previously, previously > 0, let plan = regenerator.plan, plan.canRun {
+            bar(
+                title: "The detector changed. Re-examine your history?",
+                text: "\(previously) session\(previously == 1 ? " was" : "s were") analysed by an older detector. \(plan.protected) of your judgments are protected and replayed untouched."
+            ) {
+                Button("Show the plan") {
+                    UserDefaults.standard.set(SettingsView.Tab.advanced.rawValue, forKey: SettingsView.tabKey)
+                    openSettings()
+                }
+                .buttonStyle(UnrotButton())
+                Button("Re-examine…") { confirming = true }.buttonStyle(UnrotButton(weight: .primary))
+            }
+            .confirmationDialog("Re-examine \(plan.toRun.count) sessions?", isPresented: $confirming) {
+                Button("Re-examine") { regenerator.start() }
+            } message: {
+                Text("This makes model calls for each session, and costs what that costs. It stops between any two sessions, and your judgments are not touched.")
+            }
+        }
+    }
+
+    /// Sessions a regeneration would re-run that were already analysed once --
+    /// i.e. by a detector that has since changed. The never-analysed ones are
+    /// the queue's business, not this banner's.
+    private var previously: Int? {
+        guard let plan = regenerator.plan else { return nil }
+        let never = watcher.queue?.pending.filter { $0.reason == "never" }.count ?? 0
+        return max(0, plan.toRun.count - never)
+    }
+
+    private func bar<Buttons: View>(title: String, text: String, @ViewBuilder buttons: () -> Buttons) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(Color.bucketLearning)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(.callout, weight: .semibold)).foregroundStyle(Color.bucketLearning)
+                Text(text).font(.system(.callout)).foregroundStyle(Color.inkSoft)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            buttons()
+        }
+        .padding(10)
+        .background(Color.bucketLearningBG, in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
 /// Seeded data must never read as a finding about the user.
 private struct FixturesNotice: View {
     let count: Int
@@ -425,7 +504,7 @@ private struct FixturesNotice: View {
         HStack(alignment: .top, spacing: 8) {
             Pip(text: "fixtures", tint: .inkFaint, wash: .rule)
             Text("\(count) of these events are development fixtures. Remove them with `python -m unrot.store seed --clear`.")
-                .font(.system(size: 12))
+                .font(.system(.callout))
                 .foregroundStyle(Color.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
         }
