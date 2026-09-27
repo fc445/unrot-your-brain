@@ -32,7 +32,11 @@ build-backend = "hatchling.build"
 packages = ["src/unrot"]
 
 [dependency-groups]
-dev = ["httpx>=0.27", "pytest>=8.0"]
+dev = [
+    "cryptography>=43",
+    "httpx>=0.27",
+    "pytest>=8.0",
+]
 packaging = [
     "pyinstaller>=6.22.3",
 ]

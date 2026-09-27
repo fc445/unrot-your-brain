@@ -153,3 +153,64 @@ throwaway tree or put the old version back afterwards.
 
 GitHub runs a release workflow from the tagged commit, so a tag cut before
 these files existed will not build.
+
+## Updates
+
+The app updates itself with [Sparkle](https://sparkle-project.org) (PR-36).
+Once a build with it is installed, every later release reaches that copy
+without anyone downloading a DMG.
+
+After `build-dmg.yml` attaches the DMG, its `appcast` job signs the DMG and adds
+it to `appcast.xml` on the repo's **`appcast` branch**. Every installed app reads
+that file from `raw.githubusercontent.com` (`SUFeedURL`), once a day, or when
+someone chooses **Check for Updates…** from the app menu. `packaging/appcast.py`
+does the signing and the editing.
+
+- **Channels stay apart.** A dev release's item is tagged `dev` and a prod
+  release's `prod`. A build accepts only its own channel, so a dev tester is
+  never moved onto a prod build, and a prod user never sees a dev one.
+- **The build number decides what's newer.** It's the commit count, so it only
+  goes up.
+- **Nothing is signed with a Developer ID yet.** Sparkle accepts an update
+  between two ad-hoc builds because of its own EdDSA signature. The PR-35 spike
+  (`spikes/20260926-PR-35-sparkle-adhoc-updates/`) shows this working, and a
+  tampered signature being refused.
+- **A Keychain prompt after each update.** macOS ties the saved API key to the
+  exact build that saved it, so it asks once after each update. Settings ›
+  Advanced says so. A Developer ID would stop it.
+- **Debug builds never update themselves.** They'd replace their own build in
+  DerivedData.
+
+### The signing key, once
+
+The app carries the public half of an EdDSA key (`SPARKLE_PUBLIC_ED_KEY`, a
+build setting on the UnrotMac target). The private half is the repo secret
+`SPARKLE_ED_PRIVATE_KEY`.
+
+```bash
+uv run packaging/appcast.py keygen ~/unrot-sparkle-private-key
+```
+
+That prints the public key. Put it in `SPARKLE_PUBLIC_ED_KEY` for both the
+Debug and Release configurations of the UnrotMac target. Then store the private
+key as the secret:
+
+```bash
+gh secret set SPARKLE_ED_PRIVATE_KEY < ~/unrot-sparkle-private-key
+```
+
+Keep the key file somewhere safe, such as a password manager, and delete the
+loose copy. **If the private key is lost, installed apps can never update
+again.** Everyone would have to download a DMG by hand once to move to a new key.
+
+The `appcast` job refuses to publish if the secret isn't the private half of
+the project's public key. A mismatch would make every installed copy reject
+every update as "improperly signed". Without the secret, releases are still
+built and attached, but they're left out of the appcast, with a warning on the
+run.
+
+To check a file's signature the way Sparkle does:
+
+```bash
+SPARKLE_ED_PRIVATE_KEY="$(cat ~/unrot-sparkle-private-key)" uv run packaging/appcast.py sign build/dmg/Unrot-0.2.0.dmg
+```

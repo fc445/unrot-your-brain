@@ -2,7 +2,8 @@ name: Build DMG
 
 # Called by release-dev.yml and release-prod.yml; not run on its own. Builds
 # Unrot.app for one channel from a release's tag, stamps the tag's version into
-# it, and attaches the DMG to that release.
+# it, and attaches the DMG to that release. Then the appcast job signs the DMG
+# and adds it to the Sparkle feed installed apps update from (PR-36).
 #
 # The DMG is signed ad hoc -- there is no Developer ID yet -- so the release
 # notes get the one command that lets macOS open it.
@@ -24,6 +25,11 @@ on:
           Baked into a dev build as the Developer tab's default LangSmith key.
           Only release-dev.yml passes it, and it is dropped for prod regardless.
         required: false
+      SPARKLE_ED_PRIVATE_KEY:
+        description: >-
+          Signs the DMG for Sparkle. Without it the release is built and
+          attached as usual but left out of the appcast, with a warning.
+        required: false
 
 jobs:
   dmg:
@@ -34,6 +40,10 @@ jobs:
     concurrency:
       group: dmg-${{ inputs.tag }}
       cancel-in-progress: true
+    outputs:
+      build: ${{ steps.version.outputs.build }}
+      dmg: ${{ steps.dmg.outputs.name }}
+      signing: ${{ steps.signing.outputs.present }}
     env:
       CHANNEL: ${{ inputs.channel }}
       TAG: ${{ inputs.tag }}
@@ -80,7 +90,11 @@ jobs:
       # Not committed back: the tag is the record of what was built. The build
       # number is the commit count, so it only goes up, whichever channel.
       - name: Stamp the version from the tag
-        run: packaging/set-version.sh "$TAG" "$(git rev-list --count HEAD)"
+        id: version
+        run: |
+          build="$(git rev-list --count HEAD)"
+          packaging/set-version.sh "$TAG" "$build"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
 
       - name: Build the DMG
         env:
@@ -94,6 +108,7 @@ jobs:
           dest="build/dmg/Unrot-${TAG#v}.dmg"
           [ "$src" = "$dest" ] || mv "$src" "$dest"
           echo "path=$dest" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$dest")" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -127,3 +142,87 @@ jobs:
               'Or open it once, then choose System Settings › Privacy & Security › **Open Anyway**.'
           } > "$RUNNER_TEMP/notes.md"
           gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+
+      # Whether the appcast job has anything to sign with. Secrets can't be read
+      # in a job-level `if`, so this is how the next job finds out.
+      - name: Check for a Sparkle signing key
+        id: signing
+        env:
+          HAS_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY != '' }}
+        run: |
+          echo "present=$HAS_KEY" >> "$GITHUB_OUTPUT"
+          [ "$HAS_KEY" = true ] || echo "::warning::No SPARKLE_ED_PRIVATE_KEY secret: $TAG is released but not added to the appcast, so installed apps will not be offered it."
+
+  # Signs the DMG and adds it to appcast.xml on the `appcast` branch, which is
+  # the SUFeedURL every installed app reads. Linux: packaging/appcast.py signs
+  # exactly as Sparkle's sign_update does, so nothing needs a Mac here.
+  appcast:
+    needs: dmg
+    if: needs.dmg.outputs.signing == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      CHANNEL: ${{ inputs.channel }}
+      TAG: ${{ inputs.tag }}
+      BUILD: ${{ needs.dmg.outputs.build }}
+      DMG: ${{ needs.dmg.outputs.dmg }}
+      RELEASES: ${{ github.server_url }}/${{ github.repository }}/releases
+      SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.14"
+
+      # A key that does not match the one built into the app would make every
+      # installed copy refuse every update as "improperly signed". Better to
+      # fail here, before the appcast changes.
+      - name: Check the key matches the app's
+        run: |
+          built="$(sed -n 's/.*SPARKLE_PUBLIC_ED_KEY = "\{0,1\}\([^";]*\)"\{0,1\};/\1/p' mac/Unrot.xcodeproj/project.pbxproj | sort -u)"
+          [ -n "$built" ] || { echo "::error::SPARKLE_PUBLIC_ED_KEY is empty in the Xcode project, so the app built from $TAG does not update itself."; exit 1; }
+          [ "$(printf '%s\n' "$built" | wc -l)" -eq 1 ] || { echo "::error::The Xcode project has more than one SPARKLE_PUBLIC_ED_KEY."; exit 1; }
+          secret="$(uv run -q packaging/appcast.py public)"
+          [ "$built" = "$secret" ] || { echo "::error::SPARKLE_ED_PRIVATE_KEY is not the private half of the project's SPARKLE_PUBLIC_ED_KEY."; exit 1; }
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: Unrot-${{ inputs.channel }}-${{ inputs.tag }}
+          path: dmg
+
+      # Two releases finishing together would both start from the same
+      # appcast, and the second push would be refused. So: start from the
+      # branch as it is now, add this release, push, and on a refused push do
+      # it all again from the new tip. Not a concurrency group: GitHub cancels
+      # a pending job when a third one queues, which would drop a release.
+      - name: Add the release and publish it
+        run: |
+          for attempt in 1 2 3 4 5; do
+            git worktree remove --force feed 2>/dev/null || true
+            git branch -D appcast-new 2>/dev/null || true
+            if git ls-remote --exit-code --heads origin appcast >/dev/null; then
+              git fetch -q --depth 1 origin appcast
+              git worktree add -q --detach feed FETCH_HEAD
+            else
+              git worktree add -q --orphan -b appcast-new feed
+            fi
+
+            uv run -q packaging/appcast.py add --appcast feed/appcast.xml --dmg "dmg/$DMG" \
+              --tag "$TAG" --build "$BUILD" --channel "$CHANNEL" \
+              --url "$RELEASES/download/$TAG/$DMG" --notes-url "$RELEASES/tag/$TAG"
+
+            git -C feed add appcast.xml
+            git -C feed -c user.name="github-actions[bot]" \
+                -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+                commit -q -m "appcast: $TAG ($CHANNEL, build $BUILD)"
+            git -C feed push -q origin HEAD:refs/heads/appcast && exit 0
+            echo "Push refused (attempt $attempt); starting again from the new appcast."
+            sleep $((attempt * 5))
+          done
+          echo "::error::Could not publish $TAG to the appcast after 5 attempts."
+          exit 1
