@@ -153,8 +153,8 @@ enum Snapshots {
         await shoot("settings-notifications", size: NSSize(width: 680, height: 320)) {
             NotificationsPane(notifier: Notifier(store: store, quick: kit.quick, openMain: {}, openTriage: {}))
         }
-        await shoot("settings-advanced", size: NSSize(width: 680, height: 700), settle: .milliseconds(900)) {
-            RegeneratePane(regenerator: regenerator, updater: .preview()).frame(width: 680, height: 700)
+        await shoot("settings-advanced", size: NSSize(width: 680, height: 600), settle: .milliseconds(900)) {
+            RegeneratePane(regenerator: regenerator, updater: .preview()).frame(width: 680, height: 600)
         }
         #if DEV_FEATURES
         await shoot("settings-pipeline", size: NSSize(width: 680, height: 620), settle: .milliseconds(900)) {

@@ -41,7 +41,7 @@ struct SettingsView: View {
                 .frame(width: Self.width, height: 320)
                 .tabItem { Label("Notifications", systemImage: "bell.badge") }.tag(Tab.notifications)
             RegeneratePane(regenerator: regenerator, updater: updater)
-                .frame(width: Self.width, height: 700)
+                .frame(width: Self.width, height: 600)
                 .tabItem { Label("Advanced", systemImage: "gearshape.2") }.tag(Tab.advanced)
             #if DEV_FEATURES
             DeveloperPane(client: client, regenerator: regenerator, restartCore: restartCore)
