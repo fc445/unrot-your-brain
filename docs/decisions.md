@@ -260,3 +260,11 @@ Layer 4 of the detector funnel proposed in `docs/handover-20260926-detector-reth
 
   Amounts are worded by `spend.money`, so a stage costing a fraction of a cent shows "<$0.0001" and not "$0.0000".
 - **Verified:** 333 Python tests pass. UnrotKit's 42 Swift tests include new wire-contract tests whose JSON the core itself produced. The Debug app builds. The snapshot tool renders the spot-check card and the pipeline panel in light and dark. One existing quick-accept undo test failed once and passed on every re-run, on this branch and on `develop`; it looks timing-sensitive.
+
+---
+
+## 2026-09-27 — the learned cut is keyed on judgments, not wording (PR-39)
+
+- **2026-09-27 — A map's fingerprint is its names and which side they are on, sorted.** It used to hash each entry's text in order, and the text includes the gloss, which is the concept's latest paraphrase. So each time analysis filed another encounter under a concept already in the map, the gloss and the order changed, the cached cut missed, and the map was recalibrated mid-batch. In a live e2e run on an 8+8 map that happened 3 times: 72 Jev calls for 22 judgments, and the cut moved from `unreliable` to 0.31 under sessions still in flight. Jev is still shown glosses and order. They just no longer make a new map.
+- **2026-09-27 — `map_fingerprint` on `familiarity_judged` changes meaning at triage 0.3.0.** Older events keep the old hash, and the two do not compare. The version in each event's `triage_version` provenance tells them apart.
+- **Open:** a learned cut can rest on one or two map entries. Under ten held back, 90% precision means none of them unknown, so the cut sits just above the highest-scored unknown entry, and whether any cut qualifies turns on the single top-scored entry. A minimum held count is the likely fix. It is not built, because its value and its fallback (the default cut, or holding nothing) are unmeasured.
