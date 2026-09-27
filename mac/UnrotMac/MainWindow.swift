@@ -52,7 +52,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
         window.toolbarStyle = .unified
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 820, height: 520)
-        let hosting = NSHostingView(rootView: content())
+        let hosting = NSHostingView(rootView: content().tint(Color.accent))
         // Hands the page's `.toolbar`, title and subtitle to this window.
         // Without it they would go nowhere: SwiftUI only puts them in windows
         // its own scenes made. A view rather than a hosting controller, because

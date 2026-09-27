@@ -138,7 +138,9 @@ final class CapturePanel: NSObject, NSWindowDelegate {
         // A hosting controller that sizes the panel to its content, so a
         // panel whose state changes grows and shrinks with it rather than
         // clipping or leaving a gap.
-        let hosting = NSHostingController(rootView: CaptureView(model: model) { [weak self] in self?.close() })
+        let hosting = NSHostingController(
+            rootView: CaptureView(model: model) { [weak self] in self?.close() }.tint(Color.accent)
+        )
         hosting.sizingOptions = [.preferredContentSize]
         panel.contentViewController = hosting
         return panel
@@ -216,7 +218,7 @@ struct CaptureView: View {
                     Text("The app's name. Never the contents.").font(.system(.subheadline)).foregroundStyle(Color.inkFaint)
                 }
                 Spacer()
-                Toggle("", isOn: $model.rememberSource).toggleStyle(.switch).tint(Color.watching).labelsHidden()
+                Toggle("", isOn: $model.rememberSource).toggleStyle(.switch).tint(Color.accent).labelsHidden()
             }
             .padding(10)
             .background(Color.sunk, in: RoundedRectangle(cornerRadius: 8))

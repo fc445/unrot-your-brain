@@ -53,6 +53,16 @@ extension Color {
     static let bucketClosed = Color.ink(0x3d7a56, 0x72b98d, contrast: (0x2c5d41, 0x97d0ab))
     static let bucketClosedBG = Color.ink(0xe9f4ed, 0x18271e)
     static let alarm = Color.ink(0xa8352b, 0xe2867c, contrast: (0x86281f, 0xf0a9a1))
+
+    // The accent: British racing green. Everything the app lets you act on --
+    // the primary button, links, the focused card, switches -- and nothing it
+    // merely reports. Also the asset catalog's AccentColor, but set explicitly
+    // too: macOS uses an app's own accent only when the system accent is
+    // Multicolor, and this one is meant to hold whatever the system's is.
+    /// For text, rules and rings: 10.4:1 on paper by day, 4.8:1 at night.
+    static let accent = Color.ink(0x004225, 0x4a9a6d, contrast: (0x002b18, 0x6bb88a))
+    /// Behind white button text: 11.6:1 by day, 6.9:1 at night.
+    static let accentFill = Color.ink(0x004225, 0x1f6641, contrast: (0x002b18, 0x17502f))
     static let alarmBG = Color.ink(0xfceceb, 0x2e1c1a)
 }
 

@@ -56,7 +56,9 @@ final class TriagePanel: NSObject, NSWindowDelegate {
         // A hosting controller that sizes the panel to its content, so a
         // panel whose state changes grows and shrinks with it rather than
         // clipping or leaving a gap.
-        let hosting = NSHostingController(rootView: TriageView(store: store, quick: quick) { [weak self] in self?.close() })
+        let hosting = NSHostingController(
+            rootView: TriageView(store: store, quick: quick) { [weak self] in self?.close() }.tint(Color.accent)
+        )
         hosting.sizingOptions = [.preferredContentSize]
         panel.contentViewController = hosting
         return panel

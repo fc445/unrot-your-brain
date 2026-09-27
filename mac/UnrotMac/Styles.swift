@@ -13,7 +13,8 @@ extension Color {
     static let watching = Color.ink(0x2f7a4f, 0x72b98d)
 }
 
-/// Primary is the one thing the screen is asking; secondary is its alternative.
+/// Primary is the one thing the screen is asking, in the accent; secondary is
+/// its alternative.
 struct UnrotButton: ButtonStyle {
     enum Weight { case primary, secondary }
     var weight: Weight = .secondary
@@ -42,10 +43,10 @@ struct UnrotButton: ButtonStyle {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(maxWidth: fill ? .infinity : nil)
-            .foregroundStyle(weight == .primary ? Color.paper : Color.inkPrimary)
+            .foregroundStyle(weight == .primary ? Color.white : Color.inkPrimary)
             .background(
                 RoundedRectangle(cornerRadius: 7)
-                    .fill(weight == .primary ? Color.inkPrimary : Color.card)
+                    .fill(weight == .primary ? Color.accentFill : Color.card)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 7)
@@ -57,10 +58,8 @@ struct UnrotButton: ButtonStyle {
     }
 }
 
-/// "Show the moment…" -- ink, not a colour. Every colour on this palette
-/// already means something: amber is Waiting on you, blue is To learn, green is
-/// Closed, and a link is none of them. It says it is a link by underlining
-/// under the pointer instead.
+/// "Show the moment…" -- in the accent, as everything you can act on is, and
+/// underlined under the pointer.
 struct LinkButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         Rendered(configuration: configuration)
@@ -73,7 +72,7 @@ struct LinkButton: ButtonStyle {
         var body: some View {
             configuration.label
                 .font(.system(.body, weight: .semibold))
-                .foregroundStyle(Color.inkPrimary)
+                .foregroundStyle(Color.accent)
                 .underline(hovering)
                 .opacity(configuration.isPressed ? 0.6 : 1)
                 .contentShape(Rectangle())

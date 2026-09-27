@@ -24,6 +24,7 @@ struct UnrotMacApp: App {
                 menuBar: delegate.menuBar,
                 restartCore: { delegate.core.restart() }
             )
+            .tint(Color.accent)
             #if DEV_FEATURES
             .environment(delegate.langSmith)
             #endif

@@ -176,7 +176,7 @@ enum Snapshots {
             // A sized shot is pinned to its size, as a real window pins its
             // content; views that fill their window would otherwise grow to
             // whatever the offscreen window lets them.
-            let hosting = NSHostingView(rootView: content().frame(width: size?.width, height: size?.height))
+            let hosting = NSHostingView(rootView: content().frame(width: size?.width, height: size?.height).tint(Color.accent))
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: size ?? NSSize(width: 400, height: 300)),
                 styleMask: [.borderless], backing: .buffered, defer: false
@@ -211,7 +211,7 @@ enum Snapshots {
         @ViewBuilder _ content: () -> V
     ) async {
         for (suffix, appearance) in appearances {
-            let hosting = NSHostingView(rootView: content())
+            let hosting = NSHostingView(rootView: content().tint(Color.accent))
             hosting.sceneBridgingOptions = [.toolbars, .title]
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: size),

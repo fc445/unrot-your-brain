@@ -194,7 +194,7 @@ struct FirstRunView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            Toggle("", isOn: isOn).toggleStyle(.switch).tint(Color.watching).labelsHidden()
+            Toggle("", isOn: isOn).toggleStyle(.switch).tint(Color.accent).labelsHidden()
         }
         .padding(16)
     }

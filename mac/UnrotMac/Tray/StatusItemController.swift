@@ -100,6 +100,7 @@ final class StatusItemController: NSObject {
                 self?.popover.performClose(nil)
                 self?.actions.openMain()
             }
+            .tint(Color.accent)
         )
 
         render()
