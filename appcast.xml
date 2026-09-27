@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel>
+    <title>unrot</title>
+    <item>
+      <title>unrot 0.2.0-dev.1</title>
+      <guid isPermaLink="false">v0.2.0-dev.1</guid>
+      <pubDate>Sun, 27 Sep 2026 13:39:21 +0000</pubDate>
+      <sparkle:version>61</sparkle:version>
+      <sparkle:shortVersionString>0.2.0-dev.1</sparkle:shortVersionString>
+      <sparkle:channel>dev</sparkle:channel>
+      <sparkle:fullReleaseNotesLink>https://github.com/fc445/unrot-your-brain/releases/tag/v0.2.0-dev.1</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/fc445/unrot-your-brain/releases/download/v0.2.0-dev.1/Unrot-0.2.0-dev.1.dmg" length="49126878" type="application/octet-stream" sparkle:edSignature="7b1ZJktIvYCiaY6W6VLpSuSdOkBOaoCyovJlrbLEfcLMDNy0d+z4WEn1LAcz5oIDkPHc0qeDaOn+PceOqXYIAg==" />
+    </item>
+  </channel>
+</rss>
