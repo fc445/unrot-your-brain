@@ -204,10 +204,11 @@ every judgment alone).
 
 ## Not done
 
-- **Signing, notarisation, Sparkle.** `packaging/release.sh` is written and
-  checks its prerequisites, but has never run: this machine has no Developer ID.
-  Ad-hoc DMGs from `packaging/dmg.sh` do work.
-  Sparkle needs a decision about where updates are hosted.
+- **Signing and notarisation.** `packaging/release.sh` is written and checks its
+  prerequisites, but has never run: this machine has no Developer ID. Ad-hoc
+  DMGs from `packaging/dmg.sh` do work, and so does Sparkle between them (see
+  "Updates" in [`packaging/README.md`](../packaging/README.md)). The cost is a
+  Keychain prompt after every update, which a Developer ID would end.
 - **Deleting retained copies.** Capture appends to them incrementally, so doing
   it safely needs a core operation that forgets them as well.
 - **Universal build.** The frozen core is arm64; universal2 needs a universal2

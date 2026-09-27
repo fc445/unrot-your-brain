@@ -23,3 +23,4 @@ jobs:
       tag: ${{ github.event.release.tag_name }}
     secrets:
       LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+      SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
