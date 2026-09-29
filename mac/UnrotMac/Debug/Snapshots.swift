@@ -14,7 +14,11 @@
 //  its menu-bar item in this mode, and exits when done.
 //
 //  Drawing is in-process -- an offscreen window and `cacheDisplay` -- which is
-//  why no screen permission is involved: nothing reads the screen.
+//  why no screen permission is involved: nothing reads the screen. The cost is
+//  that system materials (the sidebar, a selected row's highlight) do not
+//  draw. To see those, `UNROT_SNAPSHOT_HOLD=<seconds>` instead opens the real
+//  main window over the `full` home -- behind everything, without taking
+//  focus -- holds it for a window-capturing tool, and exits.
 
 #if DEBUG
 import AppKit
@@ -36,10 +40,22 @@ enum Snapshots {
         }
         homes.append(("failed", "/tmp/unrot-no-core-here.sock"))
 
+        if let hold = env["UNROT_SNAPSHOT_HOLD"].flatMap(Double.init),
+           let (_, socket) = homes.first(where: { $0.0 == "full" }) {
+            let kit = await Kit(socket: socket, up: true)
+            let main = MainWindow {
+                AnyView(RootView(core: kit.core, store: kit.store, quick: kit.quick, watcher: kit.watcher, router: Router()))
+            }
+            main.showBehind()
+            try? await Task.sleep(for: .seconds(hold))
+            exit(0)
+        }
+
         for (name, socket) in homes {
             let kit = await Kit(socket: socket, up: name != "failed")
-            await shoot("main-\(name)", size: NSSize(width: 1040, height: 760), settle: .milliseconds(900)) {
-                RootView(core: kit.core, store: kit.store, quick: kit.quick, watcher: kit.watcher, router: Router())
+            await shootWindow("main-\(name)") {
+                RootView(core: kit.core, store: kit.store, quick: kit.quick, watcher: kit.watcher, router: Router(),
+                         regenerator: Regenerator(client: kit.client, store: kit.store))
             }
             if ["full", "clean", "failed"].contains(name) {
                 await shoot("popover-\(name)") {
@@ -65,6 +81,21 @@ enum Snapshots {
     /// Everything that needs a populated store.
     private static func shootFull(_ kit: Kit) async {
         let store = kit.store
+        // Accessibility › Increase Contrast, which the palette answers with
+        // stronger text and rules.
+        await shootWindow(
+            "main-full-contrast",
+            appearances: [("light", .accessibilityHighContrastAqua), ("dark", .accessibilityHighContrastDarkAqua)]
+        ) {
+            RootView(core: kit.core, store: store, quick: kit.quick, watcher: kit.watcher, router: Router())
+        }
+        for (tag, bucket) in [("learning", Bucket.learning), ("closed", .closed)] {
+            let router = Router()
+            router.list = bucket
+            await shootWindow("main-full-\(tag)") {
+                RootView(core: kit.core, store: store, quick: kit.quick, watcher: kit.watcher, router: router)
+            }
+        }
         await shoot("triage-full") {
             TriageView(store: store, quick: kit.quick, finished: {})
         }
@@ -111,24 +142,23 @@ enum Snapshots {
         }
 
         let settings = ModelSettings()
-        await shoot("settings-capture", size: NSSize(width: 760, height: 620), settle: .milliseconds(900)) {
-            CapturePane(watcher: kit.watcher).frame(width: 760, height: 620)
+        await shoot("settings-capture", size: NSSize(width: 680, height: 600), settle: .milliseconds(900)) {
+            CapturePane(watcher: kit.watcher).frame(width: SettingsView.width, height: 600)
         }
         let regenerator = Regenerator(client: kit.client, store: store)
-        await shoot("settings-model", size: NSSize(width: 760, height: 620), settle: .milliseconds(1200)) {
-            ModelPane(settings: settings, client: kit.client, watcher: kit.watcher, regenerator: regenerator,
-                      restartCore: {}, showPlan: {})
-                .frame(width: 760, height: 620)
+        await shoot("settings-model", size: NSSize(width: 680, height: 640), settle: .milliseconds(1200)) {
+            ModelPane(settings: settings, client: kit.client, restartCore: {})
+                .frame(width: SettingsView.width, height: 640)
         }
-        await shoot("settings-notifications", size: NSSize(width: 760, height: 420)) {
+        await shoot("settings-notifications", size: NSSize(width: 680, height: 320)) {
             NotificationsPane(notifier: Notifier(store: store, quick: kit.quick, openMain: {}, openTriage: {}))
         }
-        await shoot("settings-advanced", size: NSSize(width: 760, height: 700), settle: .milliseconds(900)) {
-            RegeneratePane(regenerator: regenerator, updater: .preview()).frame(width: 760, height: 700)
+        await shoot("settings-advanced", size: NSSize(width: 680, height: 600), settle: .milliseconds(900)) {
+            RegeneratePane(regenerator: regenerator, updater: .preview()).frame(width: 680, height: 600)
         }
         #if DEV_FEATURES
-        await shoot("settings-pipeline", size: NSSize(width: 760, height: 620), settle: .milliseconds(900)) {
-            Form { PipelineSection(client: kit.client) }.formStyle(.grouped).frame(width: 760, height: 620)
+        await shoot("settings-pipeline", size: NSSize(width: 680, height: 620), settle: .milliseconds(900)) {
+            Form { PipelineSection(client: kit.client) }.formStyle(.grouped).frame(width: 680, height: 620)
         }
         #endif
     }
@@ -146,7 +176,7 @@ enum Snapshots {
             // A sized shot is pinned to its size, as a real window pins its
             // content; views that fill their window would otherwise grow to
             // whatever the offscreen window lets them.
-            let hosting = NSHostingView(rootView: content().frame(width: size?.width, height: size?.height))
+            let hosting = NSHostingView(rootView: content().frame(width: size?.width, height: size?.height).tint(Color.accent))
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: size ?? NSSize(width: 400, height: 300)),
                 styleMask: [.borderless], backing: .buffered, defer: false
@@ -163,6 +193,42 @@ enum Snapshots {
 
             if let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
                 hosting.cacheDisplay(in: hosting.bounds, to: rep)
+                let file = URL(filePath: ProcessInfo.processInfo.environment["UNROT_SNAPSHOTS"]!)
+                    .appending(path: "\(name)-\(suffix).png")
+                try? rep.representation(using: .png, properties: [:])?.write(to: file)
+            }
+            window.orderOut(nil)
+        }
+    }
+
+    /// The main window as MainWindow builds it -- titled, with the toolbar
+    /// and title bridged from SwiftUI -- drawn from its frame view, so the
+    /// toolbar and sidebar are in the picture and not only the page.
+    private static func shootWindow<V: View>(
+        _ name: String,
+        size: NSSize = NSSize(width: 1040, height: 760),
+        appearances: [(String, NSAppearance.Name)] = [("light", .aqua), ("dark", .darkAqua)],
+        @ViewBuilder _ content: () -> V
+    ) async {
+        for (suffix, appearance) in appearances {
+            let hosting = NSHostingView(rootView: content().tint(Color.accent))
+            hosting.sceneBridgingOptions = [.toolbars, .title]
+            let window = NSWindow(
+                contentRect: NSRect(origin: .zero, size: size),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                backing: .buffered, defer: false
+            )
+            window.toolbarStyle = .unified
+            window.appearance = NSAppearance(named: appearance)
+            window.contentView = hosting
+            window.setFrameOrigin(NSPoint(x: -30000, y: -30000))
+            window.orderFrontRegardless()
+            try? await Task.sleep(for: .milliseconds(1200))
+            guard let frame = window.contentView?.superview else { continue }
+            frame.layoutSubtreeIfNeeded()
+            frame.display()
+            if let rep = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) {
+                frame.cacheDisplay(in: frame.bounds, to: rep)
                 let file = URL(filePath: ProcessInfo.processInfo.environment["UNROT_SNAPSHOTS"]!)
                     .appending(path: "\(name)-\(suffix).png")
                 try? rep.representation(using: .png, properties: [:])?.write(to: file)
@@ -220,7 +286,7 @@ enum Snapshots {
     }
 }
 
-/// The five ring states on a menu-bar-like strip, at the size they ship.
+/// The five glyph states on a menu-bar-like strip, at the size they ship.
 private struct GlyphSheet: View {
     private let states: [(TrayState, Int, String)] = [
         (.clean, 0, "clean"), (.waiting(3), 3, "waiting"), (.analysing, 3, "analysing"),
@@ -235,13 +301,13 @@ private struct GlyphSheet: View {
                         Image(nsImage: TrayGlyph.image(for: state))
                             .renderingMode(.template)
                         if count > 0 {
-                            Text("\(count)").font(.system(size: 12, weight: .medium).monospacedDigit())
+                            Text("\(count)").font(.system(.callout, weight: .medium).monospacedDigit())
                         }
                     }
                     .padding(.horizontal, 8)
                     .frame(height: 24)
                     .background(.bar, in: RoundedRectangle(cornerRadius: 5))
-                    Text(label).font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text(label).font(.system(.caption)).foregroundStyle(.secondary)
                 }
             }
         }

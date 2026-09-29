@@ -35,6 +35,8 @@ struct FirstRunView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
+            Wordmark(size: 22)
+                .padding(.bottom, 6)
             Steps(current: step)
             switch step {
             case 1: folder
@@ -56,13 +58,13 @@ struct FirstRunView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("unrot needs to read one folder.").font(.display(34))
             Text("Claude Code already writes every session to your disk. unrot reads those files and nothing else — it is not a plugin, a hook, or anything that runs inside the agent.")
-                .font(.system(size: 14)).foregroundStyle(Color.inkSoft)
+                .font(.system(.title3)).foregroundStyle(Color.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 12) {
                 Image(systemName: "folder").foregroundStyle(Color.inkSoft)
-                Text("~/.claude/projects").font(.system(size: 13.5, design: .monospaced))
+                Text("~/.claude/projects").font(.system(.body, design: .monospaced))
                 Spacer()
-                Text(found).font(.system(size: 12)).foregroundStyle(Color.inkFaint)
+                Text(found).font(.system(.callout)).foregroundStyle(Color.inkFaint)
             }
             .padding(16)
             .background(Color.card, in: RoundedRectangle(cornerRadius: 10))
@@ -94,7 +96,7 @@ struct FirstRunView: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: "checkmark.circle").foregroundStyle(Color.bucketClosed)
             (Text(lead).bold() + Text(" \(rest)"))
-                .font(.system(size: 13.5))
+                .font(.system(.body))
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -105,7 +107,7 @@ struct FirstRunView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Where should analysis run?").font(.display(34))
             Text("Capture needs no model. Finding gaps, grading your answers and writing material do — and you choose where those calls go.")
-                .font(.system(size: 14)).foregroundStyle(Color.inkSoft)
+                .font(.system(.title3)).foregroundStyle(Color.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(alignment: .top, spacing: 12) {
                 choice(.hosted, "A hosted model", "Transcript windows are sent to OpenRouter, to the model you pick.") {
@@ -140,12 +142,12 @@ struct FirstRunView: View {
         let chosen = settings.endpoint == endpoint
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(title).font(.system(size: 14, weight: .semibold))
+                Text(title).font(.system(.title3, weight: .semibold))
                 Spacer()
                 Image(systemName: chosen ? "largecircle.fill.circle" : "circle")
                     .foregroundStyle(chosen ? Color.inkPrimary : Color.inkFaint)
             }
-            Text(text).font(.system(size: 12.5)).foregroundStyle(Color.inkSoft)
+            Text(text).font(.system(.callout)).foregroundStyle(Color.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
             if chosen { field() }
         }
@@ -163,7 +165,7 @@ struct FirstRunView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Watch for finished sessions?").font(.display(34))
             Text("unrot takes a session once it and its project have been quiet for \(watcher.quietMinutes) minutes — the detector judges what you said after a term was used, and mid-session there is nothing to judge yet.")
-                .font(.system(size: 14)).foregroundStyle(Color.inkSoft)
+                .font(.system(.title3)).foregroundStyle(Color.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(spacing: 0) {
                 toggleRow("Capture sessions when they finish", "A copy, on this Mac. No model is called and nothing is sent.",
@@ -175,7 +177,7 @@ struct FirstRunView: View {
             .background(Color.card, in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.rule, lineWidth: 1))
             Text("Both can be changed any time in Settings. Nothing you had before is analysed automatically, whichever you choose.")
-                .font(.system(size: 12)).foregroundStyle(Color.inkFaint)
+                .font(.system(.callout)).foregroundStyle(Color.inkFaint)
             HStack {
                 Button("Back") { step = 2 }.buttonStyle(UnrotButton())
                 Spacer()
@@ -189,12 +191,12 @@ struct FirstRunView: View {
     private func toggleRow(_ title: String, _ text: String, isOn: Binding<Bool>) -> some View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.system(size: 13.5, weight: .semibold))
-                Text(text).font(.system(size: 12)).foregroundStyle(Color.inkSoft)
+                Text(title).font(.system(.body, weight: .semibold))
+                Text(text).font(.system(.callout)).foregroundStyle(Color.inkSoft)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            Toggle("", isOn: isOn).toggleStyle(.switch).tint(Color.watching).labelsHidden()
+            Toggle("", isOn: isOn).toggleStyle(.switch).tint(Color.accent).labelsHidden()
         }
         .padding(16)
     }
@@ -210,13 +212,13 @@ private struct Steps: View {
                 let number = index + 1
                 HStack(spacing: 7) {
                     Text("\(number)")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(.subheadline, weight: .semibold))
                         .foregroundStyle(number == current ? Color.paper : Color.inkSoft)
                         .frame(width: 22, height: 22)
                         .background(Circle().fill(number == current ? Color.inkPrimary : Color.clear))
                         .overlay(Circle().stroke(number == current ? Color.clear : Color.ruleStrong, lineWidth: 1))
                     Text(name)
-                        .font(.system(size: 13, weight: number == current ? .semibold : .regular))
+                        .font(.system(.body, weight: number == current ? .semibold : .regular))
                         .foregroundStyle(number == current ? Color.inkPrimary : Color.inkSoft)
                 }
                 if number < names.count {

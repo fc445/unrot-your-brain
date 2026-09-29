@@ -29,7 +29,7 @@ struct WipeAndRerunSection: View {
     var body: some View {
         Section {
             Text("Discards every detected encounter, resolver judgment, grade and generated material, and re-examines all captured sessions under the model in effect now, from nothing. For a store full of half-finished experiments, not for a bad answer here and there -- for that, Advanced's Regenerate leaves everything alone except what it re-examines.")
-                .font(.system(size: 12))
+                .font(.system(.callout))
                 .fixedSize(horizontal: false, vertical: true)
 
             Toggle("Also discard judgments, explanations and manual submissions", isOn: $discardUserInput)
@@ -37,7 +37,7 @@ struct WipeAndRerunSection: View {
             Text(discardUserInput
                  ? "A completely empty store: nothing you confirmed, dismissed, explained or typed in by hand survives either. Only the raw captured transcripts are left to rebuild from."
                  : "Off (default): anything you confirmed, dismissed, explained or submitted by hand is left exactly as it is.")
-                .font(.system(size: 11))
+                .font(.system(.subheadline))
                 .foregroundStyle(discardUserInput ? Color.alarm : Color.inkFaint)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -47,7 +47,7 @@ struct WipeAndRerunSection: View {
                 LabeledContent("Manual submissions", value: countLine(plan.manualEncounters))
                 LabeledContent("Explanations", value: countLine(plan.explanations))
             } else if let problem {
-                Text(problem).font(.system(size: 11)).foregroundStyle(Color.inkSoft)
+                Text(problem).font(.system(.subheadline)).foregroundStyle(Color.inkSoft)
             }
         } header: {
             Text("Wipe and re-run")
@@ -64,13 +64,13 @@ struct WipeAndRerunSection: View {
                     .disabled(wiping || (plan?.sessionsToRerun ?? 0) == 0 || plan?.canRun != true)
                 if plan?.canRun == false {
                     Text("No model is configured, so nothing can be re-examined afterward.")
-                        .font(.system(size: 11)).foregroundStyle(Color.inkFaint)
+                        .font(.system(.subheadline)).foregroundStyle(Color.inkFaint)
                 }
             }
             if let lastResult {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Backed up to \(lastResult.backupPath)")
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(.subheadline, design: .monospaced))
                         .foregroundStyle(Color.inkFaint)
                         .textSelection(.enabled)
                     Button("Reveal backup in Finder") {

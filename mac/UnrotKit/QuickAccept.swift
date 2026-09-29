@@ -34,8 +34,15 @@ public final class QuickAccept {
         }
     }
 
-    /// The answer that can still be taken back. Nil once the window closes.
+    /// The answer the undo strip is showing. Nil once its eight seconds are up:
+    /// the strip is a reminder that an undo exists, not the undo itself.
     public private(set) var undoable: Answer?
+
+    /// What Edit › Undo takes back: the last answer, until the next answer or
+    /// an undo replaces it. It does not expire with the strip -- nothing about
+    /// an answer changes at eight seconds, since it was saved when given, and a
+    /// timer is no way to decide how long someone may take to notice a mis-key.
+    public private(set) var lastAnswer: Answer?
 
     public let undoWindow: Duration
     private let store: SurfaceStore
@@ -71,18 +78,20 @@ public final class QuickAccept {
         return answer
     }
 
-    /// Take the last answer back, if the window is still open.
+    /// Take the last answer back.
     @discardableResult
     public func undo() async -> Bool {
-        guard let answer = undoable else { return false }
+        guard let answer = lastAnswer else { return false }
         expiry?.cancel()
         undoable = nil
+        lastAnswer = nil
         return await store.retract(answer.encounterId)
     }
 
     private func offerUndo(_ answer: Answer) {
         expiry?.cancel()
         undoable = answer
+        lastAnswer = answer
         let window = undoWindow
         expiry = Task { [weak self] in
             try? await Task.sleep(for: window)

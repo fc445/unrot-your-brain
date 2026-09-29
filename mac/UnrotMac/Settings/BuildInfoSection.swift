@@ -30,7 +30,7 @@ struct BuildInfoSection: View {
             Text("This build")
         } footer: {
             Text("This tab, and everything else behind DEV_FEATURES, is compiled out of prod builds.")
-                .font(.system(size: 11))
+                .font(.system(.subheadline))
                 .foregroundStyle(Color.inkFaint)
         }
     }

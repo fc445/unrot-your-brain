@@ -21,8 +21,10 @@ struct UnrotMacApp: App {
                 regenerator: delegate.regenerator,
                 client: delegate.client,
                 updater: delegate.updater,
+                menuBar: delegate.menuBar,
                 restartCore: { delegate.core.restart() }
             )
+            .tint(Color.accent)
             #if DEV_FEATURES
             .environment(delegate.langSmith)
             #endif
@@ -39,6 +41,22 @@ struct UnrotMacApp: App {
                     .keyboardShortcut("j", modifiers: [.command, .option])
                 Button("Add a Gap…") { delegate.addGap() }
                     .keyboardShortcut("n")
+            }
+            SidebarCommands()
+            // The sidebar's three lists, as Mail numbers its mailboxes: the
+            // menu bar is where people look for what an app can do.
+            CommandGroup(before: .sidebar) {
+                ForEach(Array(BucketSection.all.enumerated()), id: \.element.id) { index, section in
+                    Button(section.menuTitle) { delegate.showList(section.bucket) }
+                        .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")))
+                }
+                Divider()
+            }
+            // After View, before Window, as app-specific menus go.
+            CommandMenu("Gap") {
+                GapMenu(store: delegate.store, quick: delegate.quick, router: delegate.router) {
+                    delegate.showMain()
+                }
             }
             CommandGroup(after: .toolbar) {
                 Button("Reload") { Task { await delegate.store.load() } }
@@ -68,6 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var regenerator = Regenerator(client: client, store: store,
                                        concurrency: { [model] in model.concurrency })
     let router = Router()
+    let menuBar = MenuBarPresence()
     let onboarding = Onboarding()
 
     private lazy var main = MainWindow { [unowned self] in
@@ -75,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             RootView(
                 core: core, store: store, quick: quick, watcher: watcher, router: router,
                 addGap: { [unowned self] in self.addGap() },
-                onboarding: onboarding, modelSettings: model
+                onboarding: onboarding, modelSettings: model, regenerator: regenerator
             )
                 .frame(minWidth: 820, minHeight: 520)
         )
@@ -84,7 +103,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var notifier = Notifier(
         store: store,
         quick: quick,
-        openMain: { [weak self] in self?.showMain() },
+        // A notification is about something waiting on you, so that is the list it opens.
+        openMain: { [weak self] in self?.showList(.open) },
         openTriage: { [weak self] in self?.showTriage() }
     )
     private lazy var triage = TriagePanel(store: store, quick: quick)
@@ -95,6 +115,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var triageKey: HotKey?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // One window: no tab bar to show, so no Show Tab Bar in the View menu.
+        NSWindow.allowsAutomaticWindowTabbing = false
         #if DEBUG
         if Snapshots.requested {
             Task { await Snapshots.run() }
@@ -128,6 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             core: core,
             quick: quick,
             watcher: watcher,
+            presence: menuBar,
             actions: .init(
                 router: router,
                 openMain: { [weak self] in self?.showMain() },
@@ -155,18 +178,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.triage.toggle()
         }
         showMain()
-        // The ring needs a surface to show a count, even while the window is
+        // The mark needs a surface to show a count, even while the window is
         // closed, so the store is kept fresh here rather than only by the view.
         Task { await refreshForever() }
     }
 
     func showMain() { main.show() }
 
+    func showList(_ bucket: Bucket) {
+        router.list = bucket
+        main.show()
+    }
+
     func showTriage() { triage.show() }
 
     func addGap() { capture.openBlank() }
 
-    func showStatusItem() { statusItem?.isVisible = true }
+    func showStatusItem() { menuBar.isVisible = true }
 
     private func refreshForever() async {
         while !Task.isCancelled {
@@ -174,6 +202,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(for: .seconds(15))
         }
     }
+
+    /// Right-clicking the Dock icon. The menu-bar item can be hidden or crowded
+    /// out; the Dock menu is there whenever the app is running.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Triage", action: #selector(dockTriage), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Add a Gap…", action: #selector(dockAddGap), keyEquivalent: "").target = self
+        menu.addItem(.separator())
+        menu.addItem(
+            withTitle: watcher.paused ? "Resume Watching" : "Pause Watching",
+            action: #selector(dockTogglePaused),
+            keyEquivalent: ""
+        ).target = self
+        return menu
+    }
+
+    @objc private func dockTriage() { showTriage() }
+    @objc private func dockAddGap() { addGap() }
+    @objc private func dockTogglePaused() { watcher.paused.toggle() }
 
     /// Clicking the Dock icon with no window open brings the window back.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
@@ -188,7 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         core.stop()
     }
 
-    /// The ring stays when the window goes. Quitting is in its right-click
+    /// The mark stays when the window goes. Quitting is in its right-click
     /// menu and in the app menu.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false

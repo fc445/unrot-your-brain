@@ -207,6 +207,9 @@ final class Exchange: @unchecked Sendable {
     /// written, so the server cannot have seen the request -- which is what
     /// makes retrying safe regardless of method.
     private var reachedReady = false
+    /// Whether a receive is outstanding. While one is, it -- not the state
+    /// handler -- decides how the exchange ends: see `.failed` below.
+    private var receiving = false
 
     init(socketPath: String, idempotent: Bool = true) {
         self.idempotent = idempotent
@@ -235,6 +238,18 @@ final class Exchange: @unchecked Sendable {
                 self.lock.unlock()
                 self.send(request)
             case .failed(let error):
+                // Once the request is out and a receive is waiting, the receive
+                // settles the exchange: Network.framework calls it with the
+                // bytes still in the socket, then the error. Settling here
+                // instead raced it -- the hang-up that ends every response
+                // arrives as `.failed(ENETDOWN)`, and could beat the last of
+                // the response out of the socket, turning a reply that arrived
+                // into "could not reach the core". A POST that landed was then
+                // reported as not landing.
+                self.lock.lock()
+                let receiving = self.receiving
+                self.lock.unlock()
+                if receiving { return }
                 self.settle(self.salvage(or: error))
             case .waiting(let error):
                 // Network.framework retries `waiting` indefinitely by design.
@@ -341,6 +356,9 @@ final class Exchange: @unchecked Sendable {
     }
 
     private func receive() {
+        lock.lock()
+        receiving = true
+        lock.unlock()
         connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 16) {
             [weak self] chunk, _, isComplete, error in
             guard let self else { return }

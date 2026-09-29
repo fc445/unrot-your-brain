@@ -1,12 +1,14 @@
 //  TrayPopover.swift
 //  UnrotMac
 //
-//  After the MenuBar artboard: what a left click on the ring shows. The top
-//  gap and its two answers, what is next, the handful of things worth doing
-//  from the menu bar, and a line saying what is sent where.
+//  After the MenuBar artboard: what a left click on the mark shows. The top
+//  gap and its two answers, what is next, the way to the window and to
+//  Settings, and a line saying what is sent where.
 //
 //  It answers one gap at a time and never shows a list. The list is the
-//  window's job; this is for "one thing, while I'm here".
+//  window's job; this is for "one thing, while I'm here". Commands -- pause,
+//  analyse, add a gap, quit -- are the right-click menu's, a real menu, rather
+//  than rows here drawn to look like one.
 
 import SwiftUI
 import UnrotKit
@@ -23,7 +25,7 @@ struct TrayPopover: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text(title).font(.system(size: 14, weight: .semibold))
+                    Text(title).font(.system(.title3, weight: .semibold))
                     Spacer()
                     StatusPill(watcher: watcher, core: core)
                 }
@@ -37,25 +39,27 @@ struct TrayPopover: View {
             if let next = upNext {
                 Divider()
                 HStack(spacing: 8) {
-                    Circle().fill(Color.bucketOpen).frame(width: 7, height: 7)
-                    Text(next.name).font(.system(size: 13))
+                    Circle().fill(Color.bucketOpen).frame(width: 7, height: 7).accessibilityHidden(true)
+                    Text(next.name).font(.system(.body))
                     Spacer()
-                    Text("next").font(.system(size: 11.5)).foregroundStyle(Color.inkFaint)
+                    Text("next").font(.system(.subheadline)).foregroundStyle(Color.inkFaint)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
             }
 
             Divider()
-            VStack(spacing: 0) {
-                MenuRow(title: "Open unrot", shortcut: "⌘0", action: openMain)
-                MenuRow(title: watcher.paused ? "Resume watching" : "Pause watching") { watcher.paused.toggle() }
-                SettingsLink {
-                    MenuRowLabel(title: "Settings…", shortcut: "⌘,")
-                }
-                .buttonStyle(.plain)
+            // Settings stays here rather than in the right-click menu: an
+            // AppKit menu item cannot open a SwiftUI Settings scene, and
+            // SettingsLink is the one thing that can.
+            HStack(spacing: 18) {
+                Button("Open unrot", action: openMain)
+                SettingsLink { Text("Settings…") }
+                Spacer()
             }
-            .padding(.vertical, 6)
+            .buttonStyle(LinkButton())
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
 
             if let spent {
                 HStack {
@@ -63,19 +67,19 @@ struct TrayPopover: View {
                     Spacer()
                     Text(spent.value).monospacedDigit()
                 }
-                .font(.system(size: 11.5))
+                .font(.system(.subheadline))
                 .foregroundStyle(Color.inkSoft)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
             }
 
             HStack(spacing: 6) {
-                Image(systemName: "lock").font(.system(size: 10))
+                Image(systemName: "lock").font(.system(.caption))
                 Text(watcher.autoAnalyse
                      ? "Finished sessions are sent to your model for analysis."
                      : "Nothing is sent anywhere until you ask.")
             }
-            .font(.system(size: 11))
+            .font(.system(.subheadline))
             .foregroundStyle(Color.inkFaint)
             .padding(.horizontal, 16)
             .padding(.vertical, 9)
@@ -117,26 +121,26 @@ struct TrayPopover: View {
             // server cannot send.
             VStack(alignment: .leading, spacing: 8) {
                 Text("unrot-core isn't running")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(.body, weight: .semibold))
                     .foregroundStyle(Color.alarm)
                 Text("This is not an empty list — it is an unanswered question.")
-                    .font(.system(size: 12.5))
+                    .font(.system(.callout))
                     .foregroundStyle(Color.inkSoft)
                 Button("Restart the core") { core.restart() }.buttonStyle(UnrotButton())
             }
         } else if let (concept, encounter) = store.nextWaiting {
             VStack(alignment: .leading, spacing: 8) {
-                Text(concept.name).font(.system(size: 17, weight: .semibold))
+                Text(concept.name).font(.system(.title2, weight: .semibold))
                 if let paraphrase = encounter.paraphrase {
                     Text(paraphrase)
-                        .font(.system(size: 12.5))
+                        .font(.system(.callout))
                         .foregroundStyle(Color.inkSoft)
                         .lineLimit(4)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let provenance = encounter.provenance {
                     Text(provenance)
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(Color.inkFaint)
                 }
                 QuickKeys(busy: store.busy.contains(encounter.encounterId), showKeys: false) { verdict in
@@ -144,7 +148,7 @@ struct TrayPopover: View {
                 }
                 .padding(.top, 4)
                 if encounter.sessionId != nil {
-                    Button("Show the moment in the window") {
+                    Button("Show the moment…") {
                         router.moment = .init(conceptId: concept.conceptId, encounterId: encounter.encounterId)
                         openMain()
                     }
@@ -153,46 +157,16 @@ struct TrayPopover: View {
             }
         } else if let surface = store.surface {
             Text(surface.detail)
-                .font(.system(size: 12.5))
+                .font(.system(.callout))
                 .foregroundStyle(Color.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
             // Not loaded yet. The core may simply be starting, which is not a
             // failure and must not be drawn as one.
             Text(core.status.isUp ? "Reading the log…" : "Starting the core…")
-                .font(.system(size: 12.5))
+                .font(.system(.callout))
                 .foregroundStyle(Color.inkFaint)
         }
-    }
-}
-
-private struct MenuRow: View {
-    let title: String
-    var shortcut: String? = nil
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) { MenuRowLabel(title: title, shortcut: shortcut) }
-            .buttonStyle(.plain)
-    }
-}
-
-private struct MenuRowLabel: View {
-    let title: String
-    var shortcut: String? = nil
-
-    var body: some View {
-        HStack {
-            Text(title).font(.system(size: 13))
-            Spacer()
-            if let shortcut {
-                Text(shortcut).font(.system(size: 12)).foregroundStyle(Color.inkFaint)
-            }
-        }
-        .foregroundStyle(Color.inkPrimary)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
     }
 }
 
@@ -222,9 +196,10 @@ struct QuickKeys: View {
     }
 }
 
-/// Eight seconds to take it back. A confirmation dialog would tax every correct
-/// answer to guard against the rare wrong one; this costs nothing when you were
-/// right, and the undo is a correcting event, so the mis-key stays in the log.
+/// Eight seconds of saying an undo exists. A confirmation dialog would tax every
+/// correct answer to guard against the rare wrong one; this costs nothing when
+/// you were right, and the undo is a correcting event, so the mis-key stays in
+/// the log. The undo itself lasts until the next answer (Edit › Undo).
 struct UndoStrip: View {
     let answer: QuickAccept.Answer
     let undo: () -> Void
@@ -234,10 +209,10 @@ struct UndoStrip: View {
             Image(systemName: "checkmark").foregroundStyle(Color.bucketLearning)
             VStack(alignment: .leading, spacing: 1) {
                 Text(answer.sentence)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(.callout, weight: .semibold))
                     .foregroundStyle(Color.bucketLearning)
-                Text("Stays for eight seconds, then commits.")
-                    .font(.system(size: 11))
+                Text("Edit › Undo takes it back until your next answer.")
+                    .font(.system(.subheadline))
                     .foregroundStyle(Color.inkSoft)
             }
             Spacer(minLength: 6)

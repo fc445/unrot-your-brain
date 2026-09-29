@@ -1,0 +1,22 @@
+[project]
+name = "pr50-similar-terms-spike"
+version = "0.0.0"
+description = "PR-50 spike: how do similarly named terms relate, can a directional transfer test tell, how often would umbrellas occur, and what should be counted?"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "unrot",
+    "python-dotenv>=1.0",
+    # Embedding-cosine baseline only. ONNX models, no torch; PR-34 already
+    # cached BAAI/bge-base-en-v1.5 and all-MiniLM-L6-v2 on this machine.
+    "fastembed>=0.4",
+    "numpy>=1.26",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+# The repo itself, so windows, the model clients and Jev are exactly the
+# product's. Not editable: see spikes/20260920-PR-18-store-walkthrough for why a
+# .pth-based editable install can silently stop resolving on macOS.
+unrot = { path = "../..", editable = false }

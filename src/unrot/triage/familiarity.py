@@ -92,8 +92,27 @@ class KnowledgeMap:
 
     @property
     def fingerprint(self) -> str:
+        """Which judgments this map is made of: the names on each side, and
+        nothing else.
+
+        A learned cut is cached under this, so it must change when a judgment
+        does and only then. Glosses and order are left out on purpose: a gloss
+        is the concept's latest paraphrase and the order is by latest activity,
+        so both move every time analysis files another encounter under a
+        concept already in the map -- which is not a judgment. Hashing them
+        recalibrated mid-batch and moved the cut under sessions still in flight
+        (PR-39). Jev is still shown both; they just do not make a new map.
+
+        Past `MAP_LIMIT` a concept's new activity can still bring it into the
+        shown slice and push another out. That does change this, rightly: the
+        cut is learned from what is shown.
+
+        Logged as `map_fingerprint` on `familiarity_judged`. Before triage
+        0.3.0 it hashed each entry's text in order, glosses included, so those
+        older values do not compare with these.
+        """
         body = json.dumps(
-            [[e.text for e in self.known], [e.text for e in self.unknown]]
+            [sorted(e.name for e in self.known), sorted(e.name for e in self.unknown)]
         ).encode("utf-8")
         return hashlib.sha256(body).hexdigest()[:16]
 

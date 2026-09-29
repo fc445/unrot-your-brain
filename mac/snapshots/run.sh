@@ -7,6 +7,14 @@
 # on each, runs the Debug app in its snapshot mode against them, and stops the
 # cores. Nothing here touches ~/.unrot. Compare the output with the design
 # canvas; that is what these are for.
+#
+# Offscreen drawing leaves out system materials -- the sidebar, a selected
+# row's highlight. To see those, UNROT_SNAPSHOT_HOLD=<seconds> mac/snapshots/run.sh
+# opens the real main window over the `full` fixtures instead, behind every
+# other window and without taking focus, for a tool that captures one app's
+# windows (the window server draws materials; `cacheDisplay` does not). It runs
+# a copy with its own bundle id, com.unrot.mac.snapshots: an installed unrot
+# then keeps its own defaults, and is not the app such a tool finds first.
 set -eu
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 out="${1:-$repo/build/snapshots}"
@@ -34,6 +42,24 @@ xcodebuild -project mac/Unrot.xcodeproj -scheme UnrotMac -configuration Debug bu
 app="$(xcodebuild -project mac/Unrot.xcodeproj -scheme UnrotMac -configuration Debug -showBuildSettings 2>/dev/null \
   | awk -F' = ' '/ BUILT_PRODUCTS_DIR /{print $2; exit}')/Unrot.app"
 
+if [ -n "${UNROT_SNAPSHOT_HOLD:-}" ]; then
+  held="$socks/Unrot Snapshots.app"
+  rm -rf "$held"
+  cp -R "$app" "$held"
+  plist="$held/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.unrot.mac.snapshots" "$plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleName unrot snapshots" "$plist"
+  codesign --force --deep --sign - --preserve-metadata=entitlements "$held" 2>/dev/null
+  app="$held"
+fi
+
 rm -rf "$out"
+if [ -n "${UNROT_SNAPSHOT_HOLD:-}" ]; then
+  # Through Launch Services, so a window-capturing tool can find it as an app;
+  # -g so launching it does not bring it forward. -W holds the cores up for it.
+  open -g -n -F -W --env UNROT_SNAPSHOTS="$out" --env UNROT_SNAPSHOT_HOMES="${spec#;}" \
+    --env UNROT_SNAPSHOT_HOLD="$UNROT_SNAPSHOT_HOLD" "$app"
+  exit 0
+fi
 UNROT_SNAPSHOTS="$out" UNROT_SNAPSHOT_HOMES="${spec#;}" "$app/Contents/MacOS/Unrot"
 echo "$(ls "$out" | wc -l | tr -d ' ') screenshots in $out"
