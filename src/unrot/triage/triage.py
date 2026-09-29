@@ -184,6 +184,11 @@ def triage(
 
     `candidates` are the detector's gaps in rank order, *before* the budget: a
     candidate held back here must not have used up a place another could fill.
+
+    Appends and does not commit: like the resolver's writes, when they land is
+    the caller's to decide. The graph commits before it lets go of `FILING`
+    (`pipeline.filing`); any other caller that shares the store must too, or
+    the next writer waits on SQLite's lock until it gives up.
     """
     kmap = knowledge_map(conn)
     outcome = Triage(emitted=[], map_known=len(kmap.known), map_unknown=len(kmap.unknown))

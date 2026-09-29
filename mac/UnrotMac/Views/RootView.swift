@@ -280,6 +280,14 @@ private struct Sidebar: View {
             }
         }
         .listStyle(.sidebar)
+        // The one place the window says whose it is. Under the lists, in the
+        // sidebar's own material, so it is signage and not a row.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Wordmark(size: 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+        }
     }
 }
 

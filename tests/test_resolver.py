@@ -230,6 +230,120 @@ def test_a_vague_manual_submission_is_resolved_to_the_concept_meant(conn):
     assert row["session_id"] is None
 
 
+def judgment_payload(conn, result):
+    row = conn.execute(
+        "SELECT payload FROM events WHERE event_id = ?", (result.judgment_event_id,)
+    ).fetchone()
+    return json.loads(row["payload"])
+
+
+def test_a_detected_term_is_filed_under_the_name_it_was_met_by(conn):
+    """PR-40. The live case: a project-local label renamed into something new.
+
+    "format 1" appeared in the session. "Verification Gate with Undefined Output
+    Mode" did not, and a card under that name asks the person whether they know
+    a thing they never met.
+    """
+    result = resolve(
+        conn,
+        a_term(text="format 1"),
+        decide=decider(
+            decision="new",
+            canonical_name="Verification Gate with Undefined Output Mode",
+            reasoning="A project-specific gate.",
+        ),
+    )
+
+    assert result.canonical_name == "format 1"
+    row = conn.execute("SELECT concept_id, canonical_name FROM compiled_concepts").fetchone()
+    assert row["canonical_name"] == "format 1"
+    assert row["concept_id"] == "c-format-1"
+    # Not silent: the person reads the override, and the log keeps what was proposed.
+    payload = judgment_payload(conn, result)
+    assert payload["proposed_name"] == "Verification Gate with Undefined Output Mode"
+    assert payload["reasoning"].startswith("A project-specific gate.")
+    assert "Verification Gate with Undefined Output Mode" in payload["reasoning"]
+
+
+def test_an_expansion_of_a_detected_term_is_not_its_name(conn):
+    """Containing the term is not enough: the expansion is the model's claim.
+
+    It survives where the model's explanation belongs, the paraphrase, and is
+    not recorded as an alias -- aliases are shown on the card and matched with
+    no model asked.
+    """
+    result = resolve(
+        conn,
+        a_term(text="MVCC"),
+        decide=decider(
+            decision="new",
+            canonical_name="MVCC (Multi-Version Concurrency Control)",
+            paraphrase="Multi-version concurrency control: readers see a snapshot.",
+            reasoning="Standard database technique.",
+        ),
+    )
+
+    assert result.canonical_name == "MVCC"
+    row = conn.execute("SELECT canonical_name, aliases FROM compiled_concepts").fetchone()
+    assert row["canonical_name"] == "MVCC"
+    assert json.loads(row["aliases"]) == []
+    assert judgment_payload(conn, result)["proposed_name"] == (
+        "MVCC (Multi-Version Concurrency Control)"
+    )
+    encounter = conn.execute("SELECT paraphrase FROM compiled_encounters").fetchone()
+    assert encounter["paraphrase"] == "Multi-version concurrency control: readers see a snapshot."
+
+
+def test_keeping_the_met_name_means_the_next_sighting_needs_no_model(conn):
+    """The knock-on that makes this cheaper as well as honest."""
+    resolve(
+        conn,
+        a_term(text="MVCC"),
+        decide=decider(decision="new", canonical_name="Multi-Version Concurrency Control",
+                       reasoning="."),
+    )
+
+    def explode(submission, shortlist):
+        raise AssertionError("a term already filed under its own name must match by string")
+
+    again = resolve(conn, a_term(text="mvcc", session_id="s1"), decide=explode)
+    assert again.decision == "existing"
+    assert again.decided_without_model is True
+
+
+def test_the_model_may_tidy_the_case_of_a_detected_term(conn):
+    """`launchd` to `Launchd` is the same word; that is tidying, not renaming."""
+    result = resolve(
+        conn,
+        a_term(text="launchd"),
+        decide=decider(decision="new", canonical_name="Launchd", reasoning="macOS init system."),
+    )
+
+    assert result.canonical_name == "Launchd"
+    payload = judgment_payload(conn, result)
+    assert "proposed_name" not in payload
+    assert payload["reasoning"] == "macOS init system."
+
+
+def test_a_typed_term_may_still_be_renamed_to_what_was_meant(conn):
+    """Journey 10 is the opposite case, and the transcript rule must not reach it.
+
+    A person typing from memory is reaching for a term; the model naming that
+    term is the whole point of asking it.
+    """
+    result = resolve(
+        conn,
+        manual("that kubernetes thing, k8s"),
+        decide=decider(decision="new", canonical_name="Kubernetes",
+                       reasoning="They were reaching for Kubernetes."),
+    )
+
+    assert result.canonical_name == "Kubernetes"
+    row = conn.execute("SELECT canonical_name FROM compiled_concepts").fetchone()
+    assert row["canonical_name"] == "Kubernetes"
+    assert "proposed_name" not in judgment_payload(conn, result)
+
+
 # ---------------------------------------------------------------------------
 # What it cannot do
 # ---------------------------------------------------------------------------
@@ -394,12 +508,13 @@ def test_two_concepts_that_slug_the_same_do_not_collide(conn):
 
     Reached only when the string matcher did NOT match (so a new concept is
     genuinely being made) and the decider nonetheless named it something that
-    slugs to an id already taken.
+    slugs to an id already taken. Typed, because only a typed submission may be
+    renamed by the model -- a detected one keeps the name it was met under.
     """
     resolve(conn, a_term(text="write ahead logging"), decide=strict)
     second = resolve(
         conn,
-        a_term(text="WAL", session_id="s1"),
+        manual("WAL"),
         decide=decider(
             decision="new", canonical_name="write ahead logging",
             reasoning="Deliberately forced a slug collision.",
@@ -488,3 +603,175 @@ def test_the_shortlist_leads_with_concepts_the_user_has_actually_met(conn):
     ranked = match.shortlist(match.current(conn), "locking strategy")
     assert ranked[0].concept_id == met.concept_id
     assert ranked[0].encounter_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Shortlist recall (PR-38)
+#
+# The shortlist is the model's whole view of the graph. Once the graph outgrows
+# it, a concept that the string matcher scores at zero is invisible, and a model
+# shown only strangers answers "new" -- which is how `idempotent` came to be
+# filed beside an existing `idempotency`. These tests use a graph well past the
+# shortlist size, named the way the real one is, so a target can only appear by
+# being scored, never by luck of the fallback ordering.
+# ---------------------------------------------------------------------------
+
+#: (canonical name, aliases, encounter count). Counts are set so the probe
+#: targets are *not* among the most-encountered: the fallback cannot rescue them.
+_GRAPH = [
+    ("502 Bad Gateway", (), 3),
+    ("ad hoc signing", (), 4),
+    ("at-least-once delivery", (), 2),
+    ("B-tree index", (), 2),
+    ("Backpressure", (), 5),
+    ("Bloom filter", (), 1),
+    ("cache invalidation", (), 6),
+    ("Circuit Breaker pattern", (), 3),
+    ("code signing", (), 5),
+    ("connection pooling", (), 4),
+    ("consistent hashing", (), 2),
+    ("CQRS", (), 2),
+    ("CRDT (Conflict-free Replicated Data Type)", (), 1),
+    ("dead letter queue", (), 3),
+    ("Developer ID", (), 4),
+    ("Docker Compose", (), 7),
+    ("event sourcing", (), 3),
+    ("eventual consistency", (), 4),
+    ("exactly-once delivery", (), 2),
+    ("exponential backoff", (), 5),
+    ("Git Merge", (), 6),
+    ("Git Rebase", (), 1),
+    ("Git Worktree", (), 8),
+    ("hardened runtime", (), 4),
+    ("Helm chart", (), 3),
+    ("idempotency", (), 1),
+    ("Keychain", (), 3),
+    ("Kubernetes", (), 1),
+    ("launchd", (), 2),
+    ("Liquid Glass", (), 5),
+    ("load testing", (), 3),
+    ("macOS notarization", (), 1),
+    ("macOS sandbox", (), 3),
+    ("MVCC (Multi-Version Concurrency Control)", (), 1),
+    ("NSEvent", (), 6),
+    ("Observer pattern", (), 2),
+    ("optimistic concurrency control", (), 2),
+    ("optimistic locking", (), 5),
+    ("personal access token vs service key", (), 4),
+    ("pessimistic locking", (), 3),
+    ("property-based testing", (), 2),
+    ("rate limiting", (), 5),
+    ("Saga pattern", (), 3),
+    ("ScreenCaptureKit", (), 6),
+    ("soak testing", (), 4),
+    ("SQLite WAL mode", ("write-ahead logging",), 3),
+    ("Strangler Fig pattern", (), 2),
+    ("transactional outbox", (), 1),
+    ("two-phase commit", ("2PC",), 2),
+    ("Unix Domain Socket", (), 1),
+    ("Walking Skeleton", (), 4),
+]
+
+
+def _graph():
+    return [
+        match.Known(
+            concept_id=f"c-{match.normalise(name).replace(' ', '-')}",
+            canonical_name=name,
+            aliases=aliases,
+            encounter_count=count,
+        )
+        for name, aliases, count in _GRAPH
+    ]
+
+
+def _rank(text, canonical_name):
+    """1-based position of a concept in the shortlist for `text`; None if absent."""
+    names = [c.canonical_name for c in match.shortlist(_graph(), text)]
+    return names.index(canonical_name) + 1 if canonical_name in names else None
+
+
+def test_the_recall_fixture_is_bigger_than_the_shortlist():
+    """Otherwise every probe below would pass by showing the model everything."""
+    assert len(_graph()) >= 40 > match.SHORTLIST
+    for text, _ in _PROBES:
+        assert match.exact(_graph(), text) is None, f"{text!r} would never reach the shortlist"
+
+
+#: A term the detector might produce, and the concept it is another name for.
+#: Under word-equality Jaccard each of these either scored zero against its
+#: target or lost to a concept sharing more (commoner) words.
+_PROBES = [
+    # Word form: -ent / -ency.
+    ("idempotent", "idempotency"),
+    # British vs American spelling, inside a longer name.
+    ("notarisation", "macOS notarization"),
+    # Initialism.
+    ("UDS", "Unix Domain Socket"),
+    # Spelling out an initialism that lives in a parenthetical, with the
+    # hyphenated part written as one word -- against a neighbour that shares
+    # two of its three words verbatim.
+    ("multiversion concurrency control", "MVCC (Multi-Version Concurrency Control)"),
+    # Shared rare word plus a shared common one; four `... pattern` concepts
+    # compete for the common one.
+    ("outbox pattern", "transactional outbox"),
+    # Numeronym: k, eight letters, s. Same convention as i18n and a11y.
+    ("K8s", "Kubernetes"),
+    # Initialism of one side of a comparison concept.
+    ("PAT", "personal access token vs service key"),
+    # Typo, the journey-10 case.
+    ("backpresure", "Backpressure"),
+    # Spacing of a compound name.
+    ("Screen Capture Kit", "ScreenCaptureKit"),
+]
+
+
+@pytest.mark.parametrize(("text", "target"), _PROBES)
+def test_a_variant_of_a_known_name_puts_its_concept_first(text, target):
+    assert _rank(text, target) == 1
+
+
+def test_a_neighbour_does_not_outrank_the_concept_meant():
+    """Same space, different thing: shown, maybe, but never ahead of the match.
+
+    Optimistic locking and MVCC are both answers to concurrent writers; Git
+    Merge and Git Rebase both integrate branches. The model has to be shown the
+    right one first, or the menu itself argues for the wrong answer.
+    """
+    mvcc = "MVCC (Multi-Version Concurrency Control)"
+    for text, meant in (
+        ("MVCC", mvcc),
+        ("multi-version concurrency", mvcc),
+        ("optimistic concurrency", "optimistic concurrency control"),
+        ("optimistic lock", "optimistic locking"),
+        ("git rebasing", "Git Rebase"),
+        ("rebase", "Git Rebase"),
+        ("git merging", "Git Merge"),
+    ):
+        ranked = [c.canonical_name for c in match.shortlist(_graph(), text)]
+        assert ranked[0] == meant, (text, ranked[:3])
+    # Shares two of three words with the term verbatim, and is still shown --
+    # just behind the concept the term actually spells out.
+    assert _rank("multiversion concurrency control", "optimistic concurrency control") == 2
+
+
+def test_an_alias_is_scored_like_a_name():
+    """A second name is a name: the canonical one shares nothing with this term."""
+    assert _rank("write-ahead logs", "SQLite WAL mode") == 1
+    assert _rank("2PC", "two-phase commit") == 1
+
+
+def test_weak_character_overlap_does_not_crowd_the_menu():
+    """A term with nothing in the graph gets the fallback, not a menu of noise.
+
+    Loose character similarity would find *something* in any 40-concept graph
+    for any word -- `rebase` shares `bas`/`ase` with `database` -- and a menu of
+    look-alikes is worse than the most-met concepts, because it reads like a
+    shortlist of candidates when it is not.
+    """
+    graph = _graph()
+    by_encounters = sorted(graph, key=lambda c: (-c.encounter_count, c.canonical_name))
+    fallback = by_encounters[: match.SHORTLIST]
+    assert match.shortlist(graph, "quantum entanglement") == fallback
+    assert match.shortlist(graph, "database") == fallback
+    assert len(match.shortlist(graph, "testing")) <= match.SHORTLIST

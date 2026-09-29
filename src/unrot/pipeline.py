@@ -14,7 +14,8 @@ state rather than deleting candidates from it.
 **Several sessions can run at once** (the app sends several requests; see
 `FILING`). Each run has its own connections, and the nodes that write -- triage,
 resolve, record -- hold `FILING`, so filing happens one session at a time while
-the slow part, proposing, runs side by side.
+the slow part, proposing, runs side by side. Each commits before it lets go
+(`filing`): SQLite's own write lock outlasts `FILING` otherwise.
 
 **The one rule the shape has to keep: nodes that touch the store run alone.**
 LangGraph runs a step with a single task on the calling thread and fans a
@@ -35,6 +36,7 @@ from __future__ import annotations
 import operator
 import sqlite3
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from functools import cache
 from typing import Annotated, Any, TypedDict
@@ -76,7 +78,30 @@ MAX_CONCURRENCY = 4
 #: In-process only. That is enough: one core per socket (`prepare_socket`), and
 #: the CLIs run one session at a time. Not re-entrant: nothing that holds it
 #: runs the graph.
+#:
+#: The nodes take it through `filing`, never bare -- see there for why.
 FILING = threading.Lock()
+
+
+@contextmanager
+def filing(conn: sqlite3.Connection):
+    """Hold `FILING`, and leave nothing open on `conn` when letting it go.
+
+    SQLite has a lock of its own: a connection that has written holds the
+    database's write lock until it commits. A node that let go of `FILING` with
+    its writes still open left the next session to take `FILING`, write, and
+    wait on SQLite -- while this one waited on `FILING` to get back to its own.
+    Neither moved until SQLite gave up with "database is locked" (PR-37: four
+    sessions of 36, six at a time). Triage never commits, and nothing commits
+    for regeneration until its session is done, so the nodes cannot rely on
+    what they call to have done it.
+
+    Commits when the step succeeds and rolls back what is still open when it
+    raises, so a failed step leaves nothing open either. Record is last, so the
+    session stays pending whichever step failed.
+    """
+    with FILING, conn:
+        yield
 
 
 @dataclass
@@ -184,7 +209,7 @@ def _triage(state: State, runtime) -> dict:
         return {"emitted": result.emitted, "held_back": []}
     # Under FILING: triage reads what the person knows, which another session's
     # filing changes, and records each judgment it makes.
-    with FILING:
+    with filing(deps.conn):
         triaged = triage_gaps(
             deps.conn, result.ranked, judge=deps.judge,
             max_candidates=deps.max_candidates, model_label=deps.triage_label,
@@ -195,7 +220,7 @@ def _triage(state: State, runtime) -> dict:
 def _resolve(state: State, runtime) -> dict:
     deps = runtime.context
     resolutions = []
-    with FILING:
+    with filing(deps.conn):
         for candidate in state["emitted"]:
             submission = from_candidate(candidate)
             # Regeneration's conservative rule, at the one line where it is
@@ -221,7 +246,7 @@ def _record(state: State, runtime) -> dict:
     """Written last, so a failure anywhere above leaves the session pending."""
     deps = runtime.context
     result, emitted = state["result"], state["emitted"]
-    with FILING:
+    with filing(deps.conn):
         # What was filed, not what the detector's budget picked: with triage the
         # two differ, and export joins a user's verdict to the `emitted` flag.
         record_detection(deps.conn, replace(result, emitted=emitted), max_candidates=deps.max_candidates)
