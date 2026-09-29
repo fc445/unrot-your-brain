@@ -1,0 +1,19 @@
+[project]
+name = "pos-chunking-spike"
+version = "0.0.0"
+description = "Spike: can deterministic POS chunking cut detector candidates or LLM input size?"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "unrot",
+    "spacy>=3.8,<3.9",
+    "en-core-web-sm",
+    "wordfreq>=3.1",
+    "snowballstemmer>=2.2",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+unrot = { path = "../..", editable = false }
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
