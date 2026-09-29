@@ -19,11 +19,13 @@ import pytest
 from langchain_core.runnables import RunnableLambda
 from langchain_core.tracers.base import BaseTracer
 
+from unrot.capture import connect as connect_raw
 from unrot.capture import paths
 from unrot.capture.ingest import SCHEMA_PATH as RAW_SCHEMA
 from unrot.detector import detect
 from unrot.pipeline import Deps, run_session
-from unrot.resolver import strict
+from unrot.resolver import manual, resolve, strict
+from unrot.store import append, compile_state
 from unrot.store.__main__ import open_store
 
 
@@ -210,3 +212,144 @@ def test_a_failing_model_call_leaves_the_session_pending(conn, home):
     assert conn.execute(
         "SELECT 1 FROM compiled_sessions WHERE session_id = 's0'"
     ).fetchone() is None
+
+
+# ---------------------------------------------------------------------------
+# Filing, one session at a time
+# ---------------------------------------------------------------------------
+#
+# `FILING` takes the writing nodes one session at a time, but SQLite has a lock
+# of its own: a connection that has written holds the database's write lock
+# until it commits. A node that let go of `FILING` with its writes uncommitted
+# left the next session to take `FILING`, write, and wait on SQLite -- while the
+# first waited on `FILING` to get back to its own writes. Neither moved until
+# the second gave up with "database is locked". In a live run of 36 sessions,
+# 6 at a time, four failed that way (PR-37).
+
+
+def knows(conn, known=("git", "grep", "json"), unknown=("mvcc", "raft", "crdt")):
+    """A map to judge against: concepts dismissed as known, confirmed as gaps.
+    Without one, triage judges nothing and so writes nothing."""
+    for names, judgment in ((known, "encounter_dismissed"), (unknown, "encounter_confirmed")):
+        for name in names:
+            filed = resolve(conn, manual(name, f"what {name} is"), decide=strict, recompile=False)
+            append(conn, judgment, {"encounter_id": filed.encounter_id})
+    conn.commit()
+    compile_state(conn)
+
+
+def unfamiliar(term, gloss, kmap):
+    """A classifier sure every term is new to the person, so triage records a
+    judgment and passes the candidate on to be filed."""
+    return {"p_knows": 0.1, "confidence": 0.9, "model": "stub"}
+
+
+unfamiliar.model = "stub"
+
+
+class Watched:
+    """`FILING`, noting each time it is let go whether the store still had
+    writes open."""
+
+    def __init__(self, conn):
+        self._lock = threading.Lock()
+        self._conn = conn
+        self.released_open: list[bool] = []
+
+    def __enter__(self):
+        self._lock.acquire()
+
+    def __exit__(self, *exc):
+        self.released_open.append(self._conn.in_transaction)
+        self._lock.release()
+
+
+class SteppingBack:
+    """`FILING`, where a session that lets it go steps back before asking again,
+    so a session already waiting takes the next turn. The OS promises neither
+    order; this makes the one that failed live the one that always happens."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+
+    def __enter__(self):
+        self._lock.acquire()
+
+    def __exit__(self, *exc):
+        self._lock.release()
+        time.sleep(0.2)
+
+
+@pytest.mark.parametrize("recompile", [True, False], ids=["analysis", "regeneration"])
+def test_no_writing_node_lets_go_of_filing_with_its_writes_open(conn, home, monkeypatch, recompile):
+    """Triage, resolve and record each write, and each commits before another
+    session can take its turn. Regeneration is the sharper case: it does not
+    recompile after each resolution, so nothing was committing for it."""
+    from unrot import pipeline
+
+    knows(conn)
+    raw = captured(home, "s0", 1)
+    filing = Watched(conn)
+    monkeypatch.setattr(pipeline, "FILING", filing)
+
+    run = run_session("s0", deps(conn, raw, judge=unfamiliar, recompile=recompile))
+
+    assert [r.canonical_name for r in run.resolutions] == ["term0"]
+    assert conn.execute(
+        "SELECT count(*) FROM events WHERE event_type = 'familiarity_judged'"
+    ).fetchone()[0] == 1
+    # One release each for triage, resolve and record.
+    assert filing.released_open == [False, False, False]
+
+
+def test_two_sessions_filing_side_by_side_both_finish(home, monkeypatch):
+    """The live failure, offline: two sessions triaged against a map, the second
+    taking `FILING` the moment the first lets it go. Both must be filed."""
+    from unrot import pipeline
+
+    seed = open_store(home)
+    knows(seed)
+    seed.close()
+    for session_id in ("a", "b"):
+        captured(home, session_id, 1).close()
+    monkeypatch.setattr(pipeline, "FILING", SteppingBack())
+
+    both_proposed = threading.Barrier(2, timeout=5)
+
+    def propose(prompt_text):
+        # Both reach triage together, as they do when the app sends several.
+        both_proposed.wait()
+        return flags_every_window(prompt_text)
+
+    failures: list[BaseException] = []
+
+    def analyse(session_id):
+        store, raw = open_store(home), connect_raw(home)
+        try:
+            run_session(session_id, deps(store, raw, propose=propose, judge=unfamiliar))
+        except BaseException as exc:  # noqa: BLE001 - reported below, on the test thread
+            failures.append(exc)
+        finally:
+            store.close()
+            raw.close()
+
+    threads = [threading.Thread(target=analyse, args=(s,)) for s in ("a", "b")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert not failures, failures
+
+    store = open_store(home)
+    try:
+        analysed = store.execute(
+            "SELECT session_id FROM compiled_sessions ORDER BY session_id"
+        ).fetchall()
+        filed = store.execute(
+            "SELECT session_id FROM compiled_encounters"
+            " WHERE session_id IS NOT NULL ORDER BY session_id"
+        ).fetchall()
+    finally:
+        store.close()
+    assert [row[0] for row in analysed] == ["a", "b"]
+    assert [row[0] for row in filed] == ["a", "b"]
