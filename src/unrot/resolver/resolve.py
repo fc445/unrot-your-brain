@@ -112,6 +112,42 @@ def _concept_id(conn: sqlite3.Connection, name: str) -> str:
     return candidate if not taken else f"c-{slug}-{new_ulid()[-6:]}"
 
 
+def _tidy(name: str) -> str:
+    """Case and whitespace only. Punctuation stays: `C++` is not `C`."""
+    return " ".join(name.casefold().split())
+
+
+def _name_as_met(submission: Submission, proposed: str) -> tuple[str, str | None]:
+    """The name a new concept from a transcript is filed under.
+
+    A detected term is exactly what appeared in the session, so it already is
+    the name the person met. The model may tidy it -- `launchd` to `Launchd` --
+    but not rename it. A rename is how "format 1", a label local to one project,
+    once came out as "Verification Gate with Undefined Output Mode": a card for
+    something that appears nowhere in the session, which the person would be
+    asked whether they know and could only fail to recognise. It is the same
+    error the resolver refuses to make with a hallucinated concept id -- showing
+    the person something they never met -- arriving by a different route.
+
+    Keeping the name they met also means the next time that term appears it
+    exact-matches this concept with no model asked, rather than depending on a
+    model to recognise its own earlier rename.
+
+    An expansion ("MVCC (Multi-Version Concurrency Control)") is refused too,
+    even though it contains the term: which expansion is right is the model's
+    claim, not something in the session, and it belongs in the paraphrase. It is
+    not added as an alias either -- aliases are shown on the card and matched
+    without a model, so an invented one would do both jobs wrongly.
+
+    Returns the name, and the model's proposal when it was set aside, so the
+    judgment can say so rather than overriding it silently.
+    """
+    met = submission.text.strip()
+    if not proposed or _tidy(proposed) == _tidy(met):
+        return (proposed or met), None
+    return met, proposed
+
+
 def resolve(
     conn: sqlite3.Connection,
     submission: Submission,
@@ -134,6 +170,7 @@ def resolve(
 
     known = match.current(conn)
     hit = match.exact(known, submission.text)
+    set_aside = None
 
     if hit is not None:
         # No judgment to make, so none is bought. This is the common path: a
@@ -166,6 +203,12 @@ def resolve(
         canonical = str(answer.get("canonical_name") or "").strip() or submission.text
         alias = None
         if decision == "new":
+            # Only for detected terms. A typed one is the opposite case: journey
+            # 10 asks the model for "the term the person was actually reaching
+            # for", so "that kubernetes thing, k8s" is meant to become
+            # "Kubernetes", and holding it to the words typed would undo that.
+            if submission.source == "transcript":
+                canonical, set_aside = _name_as_met(submission, canonical)
             concept_id = _concept_id(conn, canonical)
         else:
             concept_id, canonical = target.concept_id, target.canonical_name
@@ -174,6 +217,14 @@ def resolve(
 
         paraphrase = str(answer.get("paraphrase") or "").strip() or submission.paraphrase
         reasoning = str(answer.get("reasoning") or "").strip() or "No reasoning given."
+        if set_aside:
+            # Said in the reasoning, because that is the part the person reads
+            # and can argue with; kept whole in the payload for anyone auditing
+            # what the model proposed.
+            reasoning += (
+                f" Filed as `{canonical}`, the term as it appeared in the session,"
+                f" rather than the suggested name \"{set_aside}\"."
+            )
         used_model = True
 
     provenance = {
@@ -194,6 +245,10 @@ def resolve(
             # Kept on the judgment so a correction can undo exactly this alias
             # rather than guessing which `alias_added` it caused.
             **({"alias": alias} if alias else {}),
+            # The model's name for a detected term, when it was not the one
+            # filed. A correction or a later prompt change can then see exactly
+            # what was overridden, rather than only that something was.
+            **({"proposed_name": set_aside} if set_aside else {}),
         },
         subject_id=concept_id,
         origin=origin,

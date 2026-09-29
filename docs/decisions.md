@@ -260,3 +260,11 @@ Layer 4 of the detector funnel proposed in `docs/handover-20260926-detector-reth
 
   Amounts are worded by `spend.money`, so a stage costing a fraction of a cent shows "<$0.0001" and not "$0.0000".
 - **Verified:** 333 Python tests pass. UnrotKit's 42 Swift tests include new wire-contract tests whose JSON the core itself produced. The Debug app builds. The snapshot tool renders the spot-check card and the pipeline panel in light and dark. One existing quick-accept undo test failed once and passed on every re-run, on this branch and on `develop`; it looks timing-sensitive.
+
+---
+
+## 2026-09-27 — a detected term keeps the name it was met by (PR-40)
+
+- **2026-09-27 — When the resolver files a detected term as `new`, the canonical name is the term as it appeared in the session.** The model may change its case or spacing (`launchd` to `Launchd`) but not rename it. Found in a live run: the detector proposed `format 1`, a label local to one project, and the resolver filed "Verification Gate with Undefined Output Mode", which appears nowhere in the session. That is the error the resolver already refuses with a hallucinated concept id, showing the person something they never met, arriving by a different route. Expansions are refused too (`MVCC`, not "MVCC (Multi-Version Concurrency Control)"). Which expansion is right is the model's claim, and it belongs in the paraphrase. A side effect: the next sighting of the term exact-matches with no model asked.
+- **2026-09-27 — The override is recorded, not silent.** The judgment's reasoning says what was set aside, and the payload keeps it as `proposed_name`. The proposal is *not* added as an alias, because aliases are shown on the card and matched without a model, so an invented one would be wrong in both places.
+- **2026-09-27 — Typed submissions are unchanged.** Journey 10 asks the model for the term the person was reaching for, so "that kubernetes thing, k8s" still becomes "Kubernetes". `resolve_reference` (material) is also unchanged: those names come from generated material in the first place.
