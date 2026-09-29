@@ -36,7 +36,8 @@ from ..resolver import fingerprint, from_candidate, match
 from ..store import append
 from .familiarity import KnowledgeMap, knowledge_map
 
-TRIAGE_VERSION = "0.2.0"
+#: 0.3.0: `map_fingerprint` is the map's judgments, not its wording (PR-39).
+TRIAGE_VERSION = "0.3.0"
 
 #: Fewer than this many of *each* side and there is no map to judge against --
 #: PR-34 found the no-map question useless for holding anything back.
@@ -74,8 +75,9 @@ SPOT_CHECK_EVIDENCE = 10
 _log = logging.getLogger(__name__)
 
 #: Learned cuts, by map and model. Calibrating costs one call per map entry, and
-#: the map only changes when the person judges something -- so a watcher working
-#: through a backlog pays for it once, not once per session.
+#: the map's fingerprint only changes when the person judges something -- so a
+#: watcher working through a backlog pays for it once, not once per session, and
+#: its sessions share one cut unless the person judges something in between.
 _CUTS: dict[tuple[str, str], tuple[float | None, str]] = {}
 
 
@@ -153,6 +155,12 @@ def calibrate(kmap: KnowledgeMap, judge) -> tuple[float | None, str]:
             answer = judge(entry.name, entry.gloss, kmap.without(entry))
             scored.append((answer["p_knows"], truth))
 
+    # Nothing here asks how many entries a cut holds back. Under ten, 90% means
+    # none of them unknown, so on a small map the cut lands at the first known
+    # entry above the highest-scored unknown one, however few sit up there. And
+    # the top cut holds only the top-scored entry, so whether *any* cut
+    # qualifies turns on that one entry being known. A floor on the count held
+    # is proposed in PR-39 and not built: the number would be a guess.
     for cut in sorted({p for p, _ in scored}):
         held = [truth for p, truth in scored if p >= cut]
         if held and sum(held) / len(held) >= TARGET_PRECISION:

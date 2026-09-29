@@ -23,7 +23,7 @@ from unrot.capture.ingest import SCHEMA_PATH as RAW_SCHEMA
 from unrot.detector.candidates import Candidate
 from unrot.model import ModelConfig
 from unrot.regen import run
-from unrot.resolver import manual, resolve, strict
+from unrot.resolver import from_candidate, manual, resolve, strict
 from unrot.store import append, compile_state
 from unrot.store.__main__ import open_store
 from unrot.triage import (
@@ -307,6 +307,64 @@ def test_calibration_is_paid_for_once_per_map(conn):
 
     calibrating = [c for c in calls if c[0] not in ("a", "b")]
     assert len(calibrating) == 2 * CALIBRATE_EACH
+
+
+def calibrated_person(conn):
+    """A map big enough to learn a cut from, and a judge that counts its calls."""
+    names = [f"k{i}" for i in range(CALIBRATE_EACH)], [f"u{i}" for i in range(CALIBRATE_EACH)]
+    person(conn, known=names[0], unknown=names[1])
+    calls = []
+    return scripted({n: 0.9 for n in names[0]}, calls=calls), calls
+
+
+def calibrations(calls, *terms):
+    return [c for c in calls if c[0] not in terms]
+
+
+def test_a_new_encounter_under_a_mapped_concept_does_not_recalibrate(conn):
+    """PR-39. Analysis files encounters under concepts already in the map, and
+    each one changes that concept's gloss (its latest paraphrase) and where it
+    sits in the map. Neither is a judgment. A live batch recalibrated three
+    times over this, and the cut moved under sessions still in flight."""
+    judge, calls = calibrated_person(conn)
+    triage(conn, [candidate("a")], judge=judge, max_candidates=2)
+    before = knowledge_map(conn)
+
+    resolve(conn, from_candidate(candidate("k3", line=40)), decide=strict)
+    compile_state(conn)
+    after = knowledge_map(conn)
+    triage(conn, [candidate("b")], judge=judge, max_candidates=2)
+
+    gloss = {e.name: e.gloss for e in after.known}
+    assert gloss["k3"] == "k3, leaned on without explanation."
+    assert after.known != before.known
+    assert len(calibrations(calls, "a", "b")) == 2 * CALIBRATE_EACH
+    assert after.fingerprint == before.fingerprint
+
+
+@pytest.mark.parametrize("judgment", ["encounter_dismissed", "encounter_confirmed"])
+def test_a_new_judgment_does_recalibrate(conn, judgment):
+    """The map *is* the person's judgments, so a new one is a new map."""
+    judge, calls = calibrated_person(conn)
+    triage(conn, [candidate("a")], judge=judge, max_candidates=2)
+
+    filed = resolve(conn, manual("newly judged", "what it is"), decide=strict)
+    append(conn, judgment, {"encounter_id": filed.encounter_id})
+    compile_state(conn)
+    triage(conn, [candidate("b")], judge=judge, max_candidates=2)
+
+    assert len(calibrations(calls, "a", "b")) == 2 * CALIBRATE_EACH + (2 * CALIBRATE_EACH + 1)
+
+
+def test_the_fingerprint_is_the_judgments_not_the_wording_or_order():
+    from unrot.triage import Entry
+
+    kmap = KnowledgeMap((Entry("SQL", "a query language"), Entry("git")), (Entry("Raft"),))
+    reworded = KnowledgeMap((Entry("git", "version control"), Entry("SQL")), (Entry("Raft", "consensus"),))
+    moved = KnowledgeMap((Entry("SQL"),), (Entry("Raft"), Entry("git")))
+
+    assert reworded.fingerprint == kmap.fingerprint
+    assert moved.fingerprint != kmap.fingerprint
 
 
 # ---------------------------------------------------------------------------
