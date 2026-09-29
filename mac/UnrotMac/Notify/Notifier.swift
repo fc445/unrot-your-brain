@@ -91,7 +91,7 @@ final class Notifier: NSObject {
             enabled = false
             return
         }
-        // `.alert` only: no sound, and no badge -- the menu-bar ring already
+        // `.alert` only: no sound, and no badge -- the menu-bar mark already
         // says how many are waiting, and it is never a red dot.
         let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert])) ?? false
         permissionDenied = !granted

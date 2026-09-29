@@ -4,7 +4,7 @@
 //  The window, owned by AppKit rather than by a SwiftUI scene.
 //
 //  Once the menu-bar item exists, closing the window must not quit the app --
-//  the ring is what is left running -- and something that is not a SwiftUI view
+//  the mark is what is left running -- and something that is not a SwiftUI view
 //  has to be able to bring it back: the right-click menu, the Dock, a
 //  notification. A `WindowGroup` destroys its window on close and can only be
 //  reopened from inside SwiftUI; an `NSWindow` held here can be shown from
@@ -26,7 +26,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
     func show() {
         let window = window ?? build()
         self.window = window
-        // A Dock icon while the window is open, none while only the ring is.
+        // A Dock icon while the window is open, none while only the mark is.
         // An ambient tool should not sit in the app switcher doing nothing.
         NSApp.setActivationPolicy(.regular)
         window.makeKeyAndOrderFront(nil)

@@ -3,14 +3,19 @@
 //
 //  One glyph, five states, and never a red dot.
 //
-//  The icon carries the state rather than badging it: a closed ring means
-//  nothing is waiting, a broken ring means something is, and the count sits
-//  beside it as plain text. Drawn once as a template image, so macOS handles
-//  light and dark, reduced transparency and the accent colour -- and since a
-//  template is monochrome by construction, red is not something it can be.
+//  The glyph is the app's mark, "Unwind": a spiral that straightens into a
+//  line. The icon carries the state rather than badging it: an unbroken line
+//  means nothing is waiting, a line with a break in it means something is, and
+//  the count sits beside it as plain text. Drawn once as a template image, so
+//  macOS handles light and dark, reduced transparency and the accent colour --
+//  and since a template is monochrome by construction, red is not something it
+//  can be.
 //
 //  Paused and clean are deliberately unlike each other. A watcher someone
 //  switched off must never look like a clean week.
+//
+//  The geometry is the mark's own, in its own units (see mac/Brand/), scaled
+//  down: the app icon, UnwindMark and this are one drawing at three sizes.
 
 import AppKit
 
@@ -34,14 +39,28 @@ enum TrayState: Equatable {
 }
 
 enum TrayGlyph {
-    static let size = NSSize(width: 18, height: 18)
-    private static let center = NSPoint(x: 9, y: 9)
-    private static let radius: CGFloat = 6
+    /// Wider than tall, as the mark is. A status item takes its width from its
+    /// image, and the menu bar leaves 18 pt of height for it.
+    static let size = NSSize(width: 23, height: 18)
     private static let stroke: CGFloat = 1.5
 
-    /// `phase` only matters for `.analysing`; it walks the dashes round.
+    // Mark units to points. The mark spans x 40...86 and y 35...60 here (the
+    // line is a little shorter than the icon's, to fit the menu bar); at 0.45
+    // the turns sit 4.5 pt apart, which leaves a clear 3 pt between strokes.
+    private static let scale: CGFloat = 0.45
+    private static let origin = NSPoint(
+        x: (size.width - (86 - 40) * scale) / 2 - 40 * scale,
+        y: size.height / 2 - (35 + 60) / 2 * scale
+    )
+
+    private static func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+        NSPoint(x: origin.x + x * scale, y: origin.y + y * scale)
+    }
+
+    /// `phase` only matters for `.analysing`; it walks the dashes along.
     static func image(for state: TrayState, phase: CGFloat = 0) -> NSImage {
-        let image = NSImage(size: size, flipped: false) { _ in
+        // Flipped, so y runs down as it does in the mark's own units.
+        let image = NSImage(size: size, flipped: true) { _ in
             draw(state, phase: phase)
             return true
         }
@@ -50,46 +69,58 @@ enum TrayGlyph {
         return image
     }
 
+    /// The spiral: three half-and-quarter turns ending pointing right, at the
+    /// top of the outer turn, where the line leaves. Angles run the way y
+    /// does, down, so increasing angle is clockwise on screen.
+    private static func spiral(into path: NSBezierPath) {
+        path.move(to: point(50, 50))
+        path.appendArc(withCenter: point(55, 50), radius: 5 * scale, startAngle: 180, endAngle: 360, clockwise: false)
+        path.appendArc(withCenter: point(50, 50), radius: 10 * scale, startAngle: 0, endAngle: 180, clockwise: false)
+        path.appendArc(withCenter: point(55, 50), radius: 15 * scale, startAngle: 180, endAngle: 270, clockwise: false)
+    }
+
     private static func draw(_ state: TrayState, phase: CGFloat) {
         // Template images keep alpha and discard colour, so "quieter" is alpha.
         let ink = NSColor.black
-        let ring = NSBezierPath()
-        ring.lineWidth = stroke
-        ring.lineCapStyle = .round
+        let mark = NSBezierPath()
+        mark.lineWidth = stroke
+        mark.lineCapStyle = .round
+        mark.lineJoinStyle = .round
+        spiral(into: mark)
 
         switch state {
         case .clean:
-            ring.appendOval(in: circleRect)
+            mark.line(to: point(86, 35))
             ink.setStroke()
 
         case .waiting:
-            // Broken at the upper right: a 100° gap, the same proportion as the
-            // canvas's 36/14 dash on a 50-unit circumference.
-            ring.appendArc(withCenter: center, radius: radius, startAngle: 90, endAngle: 350, clockwise: false)
+            // The line, broken: not yet straight.
+            mark.line(to: point(66, 35))
+            mark.move(to: point(74, 35))
+            mark.line(to: point(86, 35))
             ink.setStroke()
 
         case .analysing:
-            ring.appendOval(in: circleRect)
-            ring.setLineDash([2.2, 3.3], count: 2, phase: phase)
+            mark.line(to: point(86, 35))
+            mark.setLineDash([2.2, 3.3], count: 2, phase: phase)
             ink.setStroke()
 
         case .paused:
-            ring.appendOval(in: circleRect)
-            ring.move(to: NSPoint(x: 5.1, y: 5.1))
-            ring.line(to: NSPoint(x: 12.9, y: 12.9))
+            // The line stops at a pause sign, faded. Nothing like clean.
+            mark.line(to: point(64, 35))
+            mark.move(to: point(74, 30))
+            mark.line(to: point(74, 42))
+            mark.move(to: point(83, 30))
+            mark.line(to: point(83, 42))
             ink.withAlphaComponent(0.55).setStroke()
 
         case .coreDown:
             // Dots, faint. Not an alarm -- the window is where the failure is
             // explained; the menu bar only has to not look healthy.
-            ring.appendOval(in: circleRect)
-            ring.setLineDash([0.01, 3.0], count: 2, phase: 0)
+            mark.line(to: point(86, 35))
+            mark.setLineDash([0.01, 3.0], count: 2, phase: 0)
             ink.withAlphaComponent(0.5).setStroke()
         }
-        ring.stroke()
-    }
-
-    private static var circleRect: NSRect {
-        NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+        mark.stroke()
     }
 }

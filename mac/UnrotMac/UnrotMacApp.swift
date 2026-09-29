@@ -178,7 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.triage.toggle()
         }
         showMain()
-        // The ring needs a surface to show a count, even while the window is
+        // The mark needs a surface to show a count, even while the window is
         // closed, so the store is kept fresh here rather than only by the view.
         Task { await refreshForever() }
     }
@@ -235,7 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         core.stop()
     }
 
-    /// The ring stays when the window goes. Quitting is in its right-click
+    /// The mark stays when the window goes. Quitting is in its right-click
     /// menu and in the app menu.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false

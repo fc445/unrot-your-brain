@@ -1,7 +1,7 @@
 //  TrayPopover.swift
 //  UnrotMac
 //
-//  After the MenuBar artboard: what a left click on the ring shows. The top
+//  After the MenuBar artboard: what a left click on the mark shows. The top
 //  gap and its two answers, what is next, the way to the window and to
 //  Settings, and a line saying what is sent where.
 //

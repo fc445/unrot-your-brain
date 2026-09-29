@@ -157,12 +157,13 @@ both material formats, the moment view, and all five empty states plus the
 derived failure. A bar under the masthead says when captured sessions are
 waiting to be analysed, with the one button that spends money on them.
 
-**The ring in the menu bar** — closed when nothing is waiting, broken when
-something is, with the count beside it; dashed while analysing, crossed when
+**The mark in the menu bar** — the unwind glyph: a spiral that runs out into a
+straight line when nothing is waiting, a broken line when something is, with
+the count beside it; dashed while analysing, stopped at a pause sign when
 paused, dotted when the core is down. Never a red dot. Left click opens a
 popover that answers the top gap; right click is *Analyse now · Pause watching
 · Add a gap · Open unrot · Quit*. ⌘-drag it out of the menu bar to hide it;
-View › Show in Menu Bar brings it back. Closing the window leaves the ring
+View › Show in Menu Bar brings it back. Closing the window leaves the mark
 running.
 
 **Quick accept** — **D** for *I didn't know this*, **K** for *I knew this*, the
@@ -171,7 +172,7 @@ that works from any app. Every answer has eight seconds of undo (⌘Z in the
 window). It records confirm and dismiss only, and has no route to the check.
 
 **Add to unrot** — select text in any app › right-click › **Services** › *Add
-to unrot*, or **⌘N** / the ring's menu to type one. macOS puts third-party items
+to unrot*, or **⌘N** / the mark's menu to type one. macOS puts third-party items
 under Services, not at the top of the context menu. The keyboard shortcut is
 set in System Settings › Keyboard › Keyboard Shortcuts › Services: a service
 cannot ship an Option shortcut as its default, so ⌥⌘U is a suggestion.
@@ -190,6 +191,22 @@ analysis, the queue), Model (endpoint, model, the key in your login Keychain,
 what is in effect, what leaves this Mac), Notifications, Capture (retained
 copies, the Services shortcut), Regenerate (the plan, then a run that leaves
 every judgment alone).
+
+## The icon and the mark
+
+The app icon, the menu-bar glyph and the wordmark in the sidebar are one
+drawing, "Unwind", at three sizes. The app icon's PNGs are generated, not
+drawn by hand:
+
+```bash
+uv run --with cairosvg --with pillow mac/Brand/make_icons.py
+```
+
+That writes `UnrotMac/Assets.xcassets/AppIcon.appiconset` and
+`mac/Brand/app-icon.svg`, the 1024 master. The menu-bar glyph is drawn in
+code, in `Tray/TrayGlyph.swift`, and the SwiftUI mark in
+`Brand/UnwindMark.swift`; both use the mark's own units, so change the three
+together.
 
 ## Keys
 

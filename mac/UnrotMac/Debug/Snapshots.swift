@@ -286,7 +286,7 @@ enum Snapshots {
     }
 }
 
-/// The five ring states on a menu-bar-like strip, at the size they ship.
+/// The five glyph states on a menu-bar-like strip, at the size they ship.
 private struct GlyphSheet: View {
     private let states: [(TrayState, Int, String)] = [
         (.clean, 0, "clean"), (.waiting(3), 3, "waiting"), (.analysing, 3, "analysing"),
