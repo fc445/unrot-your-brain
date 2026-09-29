@@ -1,0 +1,39 @@
+[project]
+name = "pr42-concept-isolation-spike"
+version = "0.0.0"
+description = "PR-42 spike: can a deterministic step or a keyphrase model isolate candidate concepts before the LLM judges them?"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "unrot",
+    "python-dotenv>=1.0",
+    "spacy>=3.8,<3.9",
+    "en-core-web-sm",
+    "wordfreq>=3.1",
+    "yake>=0.4.8",
+    "pytextrank>=3.3",
+    "snowballstemmer>=2.2",
+    "requests>=2.32",
+]
+
+[dependency-groups]
+# Transformer-based extractors. Kept separate so the light extractors can be
+# installed and timed on their own: `uv sync --group heavy` pulls torch.
+heavy = [
+    "gliner>=0.2.16",
+    "keybert>=0.8",
+    # GLiNER's DeBERTa-v3 tokenizer: transformers 5.x without sentencepiece
+    # falls through to a tiktoken parser and fails on spm.model (seen here).
+    "transformers>=4.51,<5",
+    "sentencepiece>=0.2",
+    "protobuf>=5",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+# The repo itself, so the spike builds windows exactly as the detector does.
+# Not editable: see spikes/20260920-PR-18-store-walkthrough for why a .pth-based
+# editable install can silently stop resolving on macOS.
+unrot = { path = "../..", editable = false }
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
