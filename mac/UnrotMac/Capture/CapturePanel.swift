@@ -4,7 +4,7 @@
 //  Where a selection becomes a gap, and where the resolver's opinion about it
 //  can be argued with before you move on.
 //
-//  The same panel serves "Add a Gap…" from the ring, where there is no
+//  The same panel serves "Add a Gap…" from the mark, where there is no
 //  selection and you type the term yourself.
 
 import AppKit

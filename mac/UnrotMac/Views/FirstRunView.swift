@@ -35,6 +35,8 @@ struct FirstRunView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
+            Wordmark(size: 22)
+                .padding(.bottom, 6)
             Steps(current: step)
             switch step {
             case 1: folder
