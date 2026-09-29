@@ -53,14 +53,19 @@ final class TriagePanel: NSObject, NSWindowDelegate {
         panel.becomesKeyOnlyIfNeeded = false
         panel.isReleasedWhenClosed = false
         panel.delegate = self
-        // A hosting controller that sizes the panel to its content, so a
-        // panel whose state changes grows and shrinks with it rather than
-        // clipping or leaving a gap.
+        // Sized to its content, so a panel whose state changes grows and
+        // shrinks with it rather than clipping or leaving a gap. By hand, not
+        // `sizingOptions`, which crashes AppKit's constraint pass (PanelFit).
         let hosting = NSHostingController(
             rootView: TriageView(store: store, quick: quick) { [weak self] in self?.close() }.tint(Color.accent)
         )
-        hosting.sizingOptions = [.preferredContentSize]
+        hosting.sizingOptions = []
         panel.contentViewController = hosting
+        PanelFit.fit(panel, to: hosting)
+        PanelFit.follow(panel, to: hosting) { [store, quick] in
+            _ = store.nextWaiting
+            _ = quick.undoable
+        }
         return panel
     }
 }
