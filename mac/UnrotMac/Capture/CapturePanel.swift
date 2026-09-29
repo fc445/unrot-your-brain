@@ -135,12 +135,14 @@ final class CapturePanel: NSObject, NSWindowDelegate {
         panel.becomesKeyOnlyIfNeeded = false
         panel.isReleasedWhenClosed = false
         panel.delegate = self
-        // A hosting controller that sizes the panel to its content, so a
-        // panel whose state changes grows and shrinks with it rather than
-        // clipping or leaving a gap.
+        // Sized to its content, so a panel whose state changes grows and
+        // shrinks with it rather than clipping or leaving a gap. By hand, not
+        // `sizingOptions`, which crashes AppKit's constraint pass (PanelFit).
         let hosting = NSHostingController(rootView: CaptureView(model: model) { [weak self] in self?.close() })
-        hosting.sizingOptions = [.preferredContentSize]
+        hosting.sizingOptions = []
         panel.contentViewController = hosting
+        PanelFit.fit(panel, to: hosting)
+        PanelFit.follow(panel, to: hosting) { [model] in _ = model.phase }
         return panel
     }
 }
