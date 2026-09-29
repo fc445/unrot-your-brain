@@ -1,6 +1,6 @@
 # POS chunking: can it cut the detector's candidates or input size?
 
-**Ticket:** none yet (folder says `PR-TBD`; rename to the ticket ID once one exists, and fix the index row in `spikes/README.md`).
+**Ticket:** [PR-51](https://linear.app/freddie-cassidy/issue/PR-51)
 **Date:** 2026-09-29
 **Follow-on to:** [PR-42](../20260927-PR-42-concept-isolation/) (deterministic extractors as a *candidate generator*). This one asks the other half: use POS chunks to **shrink what the LLM reads**, or to **shortlist what it judges**.
 
