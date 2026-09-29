@@ -29,8 +29,11 @@ Four properties this leans on, all of them built earlier for this moment:
   which is what makes a half-finished pass resumable: the sessions still to do
   are the ones not yet stamped with the version being run.
 * **Append-only makes a partial pass a shorter log, not corruption.** Work is
-  committed per session, so a kill mid-pass leaves a log the compile step still
-  folds cleanly. That is relied on deliberately rather than hoped for.
+  committed as each step of a session files it, and the session is stamped
+  done only by its last, so a kill mid-pass leaves a log the compile step still
+  folds cleanly and a session the next pass runs again -- dropping what the
+  interrupted one had filed, as it drops any stale derived encounter. That is
+  relied on deliberately rather than hoped for.
 
 Written as a generator rather than a loop that runs to completion: the caller
 drives it, sees progress as it happens, and stops whenever it likes. That is
@@ -276,10 +279,10 @@ def regenerate(
         # `protected` was read before detection, as it always was: this session's
         # unjudged encounters were dropped above, so there is nothing new for a
         # judgment made meanwhile to land on. The graph's writing nodes held
-        # FILING for themselves; the commit, the meter and the compile hold it
-        # here.
+        # FILING for themselves, and committed before letting it go -- holding
+        # their writes open for one commit here is what left other sessions
+        # waiting on SQLite (PR-37). The meter and the compile hold it here.
         with FILING:
-            conn.commit()
             if meter is not None:
                 meter.flush(conn)
             compile_state(conn)

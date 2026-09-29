@@ -109,15 +109,14 @@ struct TriageView: View {
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.rule, lineWidth: 1))
             } else if answered > 0 {
                 VStack(spacing: 8) {
-                    Image(nsImage: TrayGlyph.image(for: .clean))
-                        .renderingMode(.template)
-                        .resizable()
-                        .frame(width: 26, height: 26)
-                        .foregroundStyle(Color.bucketClosed)
+                    UnwindMark()
+                        .strokeBorder(Color.bucketClosed, style: UnwindMark.strokeStyle(lineWidth: 2.5))
+                        .frame(width: 40, height: 22)
+                        .accessibilityHidden(true)
                     Text("That's everything.")
                         .font(.system(.title3, weight: .semibold))
                         .foregroundStyle(Color.bucketClosed)
-                    Text("\(answered) answered. The ring closes.")
+                    Text("\(answered) answered. The line runs straight.")
                         .font(.system(.callout))
                         .foregroundStyle(Color.inkSoft)
                 }

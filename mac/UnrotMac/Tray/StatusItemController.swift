@@ -1,7 +1,7 @@
 //  StatusItemController.swift
 //  UnrotMac
 //
-//  The ring in the menu bar. Left click opens the popover; right click goes
+//  The mark in the menu bar. Left click opens the popover; right click goes
 //  straight to a menu.
 //
 //  It follows the store and the supervisor through Observation rather than a
@@ -13,7 +13,7 @@ import Observation
 import SwiftUI
 import UnrotKit
 
-/// Whether the ring is in the menu bar, as something Settings can bind to.
+/// Whether the mark is in the menu bar, as something Settings can bind to.
 /// macOS remembers it across launches, under the item's autosave name; this
 /// mirrors it both ways, including when someone ⌘-drags the item out.
 @MainActor
